@@ -12,11 +12,14 @@ const { PLUGIN_INFO } = require('../core/plugins')
 const { supportedVersions, latest, oldest } = require('../core/versions')
 const { pingServer } = require('../core/ping')
 const { runAction, runBulk } = require('../core/actions')
+const { snapshot } = require('../core/view')
 const pkg = require('../../package.json')
 
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public')
 // Polices IBM Plex servies localement : l'interface fonctionne sans Internet.
 const FONTSOURCE_DIR = path.dirname(path.dirname(require.resolve('@fontsource/ibm-plex-mono/package.json')))
+// three.js (vue 3D), servi localement lui aussi.
+const THREE_DIR = path.dirname(require.resolve('three'))
 
 const BOT_FUNCTIONS = [
   'hasItem(nom, n)', 'countItem(nom)', 'blockAt(x, y, z)', 'blockBelow()', 'distanceTo(x, y, z)',
@@ -53,6 +56,7 @@ function startWebServer ({ manager, logger, config }) {
 
   app.use(express.static(PUBLIC_DIR))
   app.use('/vendor/fonts', express.static(FONTSOURCE_DIR, { maxAge: '7d' }))
+  app.use('/vendor/three', express.static(THREE_DIR, { maxAge: '7d' }))
 
   // Exécute un gestionnaire et renvoie son résultat en JSON (erreurs → 400).
   const route = fn => async (req, res) => {
@@ -109,6 +113,11 @@ function startWebServer ({ manager, logger, config }) {
   app.get('/api/bots/:id/chat', route(req => manager.require(req.params.id).chatHistory.slice(-Number(req.query.limit || 150))))
   app.get('/api/bots/:id/inventory', route(req => manager.require(req.params.id).getInventory()))
   app.get('/api/bots/:id/window', route(req => manager.require(req.params.id).getWindow()))
+  app.get('/api/bots/:id/view', route(req => snapshot(manager.require(req.params.id), {
+    radius: req.query.radius,
+    height: req.query.height,
+    blocks: req.query.blocks !== '0'
+  })))
 
   app.post('/api/bots/:id/:action', route(req => {
     const b = manager.get(req.params.id)

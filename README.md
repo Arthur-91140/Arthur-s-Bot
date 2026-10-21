@@ -55,12 +55,13 @@ Options utiles : `--host`, `--port` (serveur Minecraft), `--version 1.20.4`, `--
 
 ## L'interface web
 
-Le design reprend le langage visuel des menus de Minecraft : coins carrés, reliefs biseautés, vraies cases d'inventaire, infobulles à bordure violette, police pixel [Monocraft](https://github.com/IdreesInc/Monocraft). Comme sur une IHM industrielle, la base reste grise et la couleur ne sert qu'à signaler un état : vert = en jeu, orange = connexion, rouge = erreur. Le thème suit le réglage du système : sombre « ardoise » ou clair « inventaire ». Raccourcis : **1 à 5** pour changer d'onglet (comme la barre d'inventaire), **T** ou **/** pour écrire dans le chat, **N** pour créer un bot, **Échap** pour fermer la fiche d'un bot. Toutes les polices sont servies localement : l'interface fonctionne sans Internet.
+Le design reprend le langage visuel des menus de Minecraft : coins carrés, reliefs biseautés, vraies cases d'inventaire, infobulles à bordure violette, police pixel [Monocraft](https://github.com/IdreesInc/Monocraft). Comme sur une IHM industrielle, la base reste grise et la couleur ne sert qu'à signaler un état : vert = en jeu, orange = connexion, rouge = erreur. Le thème suit le réglage du système : sombre « ardoise » ou clair « inventaire ». Raccourcis : **1 à 5** pour changer d'onglet (comme la barre d'inventaire), **T** ou **/** pour écrire dans le chat, **N** pour créer un bot, **M** pour l'écran de contrôle, **Échap** pour fermer la fiche d'un bot ou quitter l'écran de contrôle. Toutes les polices sont servies localement : l'interface fonctionne sans Internet.
 
 | Onglet | Contenu |
 | --- | --- |
-| **Bots** | Le serveur affiché comme dans la liste multijoueur (icône, MOTD, joueurs, barres de ping, rafraîchi toutes les 20 s). Des indicateurs : bots en jeu, **TPS** et ping moyens avec leur historique, graphes en cours, tests réussis/échoués. Un tableau des bots triable et filtrable, avec un visage pixel propre à chaque bot et des jauges de vie et de faim en 10 cases. Des actions groupées (mode, graphe et signal dans des menus). Une **carte vue de dessus** des positions, un **fil d'évènements** (connexions, morts, expulsions, erreurs) et une barre de chat comme en jeu. |
-| **Fiche d'un bot** | **HUD du jeu** (cœurs, faim, barre d'expérience, barre d'objets cliquable), console de chat en direct (historique ↑), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
+| **Bots** | Le serveur affiché comme dans la liste multijoueur (icône, MOTD, joueurs, barres de ping, rafraîchi toutes les 20 s). Des indicateurs : bots en jeu, **TPS** et ping moyens avec leur historique, graphes en cours, tests réussis/échoués. Un tableau des bots triable et filtrable, avec un visage pixel propre à chaque bot et des jauges de vie et de faim en 10 cases. Des actions groupées (mode, graphe et signal dans des menus). Une **carte vue de dessus** des positions avec le **tracé des déplacements** (traces de 1, 5 ou 15 min, une couleur par bot, distance parcourue au survol), un **fil d'évènements** (connexions, morts, expulsions, erreurs) et une barre de chat comme en jeu. |
+| **Fiche d'un bot** | **HUD du jeu** (cœurs, faim, barre d'expérience, barre d'objets cliquable), console de chat en direct (historique ↑), **vue 3D** de ce que voit le bot (blocs et entités autour de lui, « yeux du bot » ou orbite libre, rayon de 12 à 28 blocs, plein écran), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
+| **Écran de contrôle** | Tableau de bord plein écran pour un second écran pendant les tests de charge (bouton en haut à droite ou **M**) : gros indicateurs (bots en jeu, TPS, ping, connexions, expulsions, morts et messages par minute, graphes, tests), bandeau d'alertes (TPS bas, bots hors ligne, expulsions récentes, serveur injoignable), horloge, grande carte avec traces, mur de tous les bots (les problèmes d'abord, tuiles compactes au-delà de 60 bots), fil d'évènements et courbes sur 10 minutes. « Nouvelle fenêtre » l'ouvre seul dans une fenêtre à glisser sur l'autre écran (adresse `/?monitor`), puis « Plein écran ». |
 | **Éditeur de comportements** | Programmation visuelle (voir plus bas). |
 | **Rapports** | Résultats des tests : statut, vérifications ✔/✘, mesures (min/moy/max + courbe), journal, erreurs ; export JSON. |
 | **Journal** | Tous les logs, filtrables par bot, niveau et texte. |
@@ -190,6 +191,7 @@ Toutes les actions de l'interface passent par l'API (utilisable depuis vos scrip
 | GET/DELETE | `/api/bots/:id` | État complet / suppression. |
 | POST | `/api/bots/:id/:action` | `connect, disconnect, reconnect, chat, mode, control, goto, gotoPlayer, stop, look, attack, dropAll, respawn, useItem, swing, equip, hotbar, armor, click, closeWindow, plugins, trigger`. |
 | GET | `/api/bots/:id/inventory`, `/window`, `/chat` | Inventaire, menu ouvert, chat. |
+| GET | `/api/bots/:id/view?radius=&height=&blocks=` | Instantané pour la vue 3D : position, regard, entités proches et boîte de blocs autour du bot (palette + données base64). |
 | POST | `/api/bulk` | `{ targets, action, ... }` sur plusieurs bots. |
 | GET/POST/PUT/DELETE | `/api/graphs[/:id]` | Graphes enregistrés. |
 | POST | `/api/run` | `{ graphId | graph, targets }` lance un graphe. |
@@ -215,7 +217,8 @@ Le canal temps réel (Socket.IO) diffuse : `bots`, `logs`, `chats`, `traces`, `r
 bin/arthur-bot.js        point d'entrée CLI (start, run, ping, versions, modes, nodes)
 src/app.js               assemblage : configuration, journal, gestionnaire, web, console
 src/core/                BotManager (bots, essaims, graphes, signaux), BotInstance (connexion,
-                         reconnexion, état, actions), plugins utilitaires, navigation, rapports, ping
+                         reconnexion, état, actions), plugins utilitaires, navigation, rapports, ping,
+                         view (instantané du monde pour la vue 3D)
 src/modes/               modes prédéfinis (basic, combat, world, testing)
 src/graph/               moteur de graphes : registry, GraphRuntime, expression, nodes/*
 src/web/server.js        API REST + Socket.IO + fichiers statiques
@@ -230,11 +233,11 @@ test/                    tests (npm test)
 **Ajouter un nœud** : ajoutez une définition `{ type, category, label, description, outputs, params, run(api) }` (ou `subscribe(api, fire)` pour un évènement) dans `src/graph/nodes/*.js`. `api.param('clé')` résout les expressions, `api.bot`, `api.locals`, `api.setVar()`, `api.sleep()`, `api.exec('sortie')`, `api.report` sont disponibles. Le nœud apparaît automatiquement dans la palette.
 
 ```bash
-npm test     # tests unitaires (expressions, moteur de graphes, registres, exemples)
+npm test     # tests unitaires (expressions, moteur de graphes, registres, exemples, vue 3D)
 ```
 
 ## Licence
 
 [AGPL-3.0](LICENSE)
 
-Polices : [Monocraft](https://github.com/IdreesInc/Monocraft) © Idrees Hassan et IBM Plex © IBM, toutes deux sous licence SIL Open Font License 1.1 (`public/fonts/monocraft/OFL.txt`). Arthur's Bot n'est ni affilié ni approuvé par Mojang ou Microsoft.
+Polices : [Monocraft](https://github.com/IdreesInc/Monocraft) © Idrees Hassan et IBM Plex © IBM, toutes deux sous licence SIL Open Font License 1.1 (`public/fonts/monocraft/OFL.txt`). La vue 3D utilise [three.js](https://threejs.org) (licence MIT), servi localement. Arthur's Bot n'est ni affilié ni approuvé par Mojang ou Microsoft.

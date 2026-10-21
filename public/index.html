@@ -20,7 +20,10 @@
       <button data-tab="logs"><span class="key">4</span>Journal</button>
       <button data-tab="help"><span class="key">5</span>Aide</button>
     </nav>
-    <div class="top-status"><span id="top-summary"></span><span id="conn-status" class="led conn" title="Connexion au serveur"></span></div>
+    <div class="top-status">
+      <span id="top-summary"></span><span id="conn-status" class="led conn" title="Connexion au serveur"></span>
+      <button id="monitor-btn" class="btn small" title="Écran de contrôle plein écran (M)">Écran de contrôle</button>
+    </div>
   </header>
 
   <main>
@@ -63,7 +66,17 @@
 
         <aside class="dash-side">
           <div class="panel map-panel">
-            <div class="panel-title"><h3 class="grow">Carte</h3><select id="map-dim" class="small"></select></div>
+            <div class="panel-title map-title">
+              <h3 class="grow">Carte</h3>
+              <select id="map-dim" class="small" title="Dimension"></select>
+              <select id="trail-minutes" class="small" title="Durée des traces">
+                <option value="0">Sans traces</option>
+                <option value="1">Traces 1 min</option>
+                <option value="5">Traces 5 min</option>
+                <option value="15">Traces 15 min</option>
+              </select>
+              <button id="trail-clear" class="btn small" title="Effacer les traces">Effacer</button>
+            </div>
             <div id="map" class="map inset"></div>
             <div id="map-legend" class="map-legend"></div>
           </div>
@@ -107,6 +120,39 @@
     <!-- Aide -->
     <section id="tab-help" class="tab"><div id="help-content" class="panel help"></div></section>
   </main>
+
+  <!-- Écran de contrôle (second écran, tests de charge) -->
+  <div id="monitor" class="monitor" hidden>
+    <header class="mon-head">
+      <div class="brand"><svg class="logo" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="10" height="10" fill="#000"/><rect x="2" y="2" width="8" height="8" fill="#8b8b8b"/><rect x="2" y="2" width="8" height="1" fill="#c6c6c6"/><rect x="2" y="9" width="8" height="1" fill="#555"/><rect x="3" y="4" width="2" height="2" fill="#55ffff"/><rect x="7" y="4" width="2" height="2" fill="#55ffff"/><rect x="4" y="7" width="4" height="1" fill="#373737"/><rect x="5" y="0" width="2" height="1" fill="#ff3b1f"/></svg><span>Écran de contrôle</span></div>
+      <span id="mon-server" class="mon-server"></span>
+      <div id="mon-alerts" class="mon-alerts"></div>
+      <span id="mon-clock" class="mon-clock"></span>
+      <button id="mon-window" class="btn small" title="Ouvrir dans une nouvelle fenêtre (second écran)">Nouvelle fenêtre</button>
+      <button id="mon-full" class="btn small">Plein écran</button>
+      <button id="mon-exit" class="btn small" title="Quitter (Échap)">Quitter</button>
+    </header>
+    <div id="mon-kpis" class="mon-kpis"></div>
+    <div class="mon-grid">
+      <div class="panel mon-map-panel">
+        <div class="panel-title"><h3 class="grow">Carte</h3><span id="mon-map-legend" class="map-legend"></span></div>
+        <div id="mon-map" class="map inset"></div>
+      </div>
+      <div class="panel mon-wall-panel">
+        <div class="panel-title"><h3 class="grow">Bots</h3><span id="mon-wall-sum" class="muted small"></span></div>
+        <div id="mon-wall" class="mon-wall"></div>
+      </div>
+      <div class="panel mon-feed-panel">
+        <div class="panel-title"><h3 class="grow">Évènements</h3></div>
+        <div id="mon-feed" class="feed"></div>
+      </div>
+      <div class="panel mon-charts">
+        <div class="mon-chart"><div class="kpi-label">TPS — 10 dernières minutes</div><div id="mon-chart-tps" class="mon-chart-box"></div></div>
+        <div class="mon-chart"><div class="kpi-label">Bots en jeu — 10 dernières minutes</div><div id="mon-chart-online" class="mon-chart-box"></div></div>
+        <div class="mon-chart"><div class="kpi-label">Ping moyen — 10 dernières minutes</div><div id="mon-chart-ping" class="mon-chart-box"></div></div>
+      </div>
+    </div>
+  </div>
 
   <aside id="drawer" class="drawer hidden">
     <div class="drawer-head"></div>

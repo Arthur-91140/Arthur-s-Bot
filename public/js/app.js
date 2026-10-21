@@ -31,9 +31,13 @@ const state = {
   filter: 'all',
   search: '',
   sort: U.store('sort') || { key: 'name', dir: 1 },
-  history: { tps: [], ping: [], online: [] },
+  history: { tps: [], ping: [], online: [], totals: [], lastSample: 0 },
+  socketOk: false,
   feed: [],
   mapDim: null,
+  trails: new Map(),
+  trailMinutes: U.store('trail-minutes') ?? 5,
+  monitor: false,
   chatHistory: U.store('chat-history') || []
 }
 
@@ -250,16 +254,42 @@ function avg (values) {
   return nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10 : null
 }
 
+const HISTORY_SIZE = 600 // 10 minutes à raison d'un point par seconde
+
+function botTotals () {
+  const t = { connections: 0, kicks: 0, deaths: 0, messages: 0 }
+  for (const b of state.bots.values()) {
+    t.connections += b.stats.connections
+    t.kicks += b.stats.kicks
+    t.deaths += b.stats.deaths
+    t.messages += b.stats.messages
+  }
+  return t
+}
+
 function sampleHistory () {
+  const now = Date.now()
+  if (state.history.lastSample && now - state.history.lastSample < 950) return
+  state.history.lastSample = now
   const online = [...state.bots.values()].filter(b => b.status === 'online')
   const push = (key, v) => {
     const list = state.history[key]
     list.push(v)
-    if (list.length > 120) list.shift()
+    if (list.length > HISTORY_SIZE) list.shift()
   }
   push('tps', avg(online.map(b => b.tps)))
   push('ping', avg(online.map(b => b.ping)))
   push('online', online.length)
+  push('totals', { t: now, ...botTotals() })
+}
+
+/** Nombre d'évènements (connexions, expulsions…) survenus pendant la dernière minute. */
+function lastMinute (key) {
+  const list = state.history.totals
+  if (list.length < 2) return 0
+  const last = list[list.length - 1]
+  const ref = list.find(e => last.t - e.t <= 60000) || list[0]
+  return Math.max(0, last[key] - ref[key])
 }
 
 /** Courbe en escalier (les valeurs nulles créent un trou). */
@@ -314,8 +344,8 @@ function renderKpis () {
   const tpsCls = tps === null || tps === undefined ? '' : tps >= 19 ? 'good' : tps >= 15 ? 'meh' : 'bad'
   U.add(U.clear($('kpis')),
     kpi('Bots en jeu', h('span', null, `${online.length}`, h('small', null, ` / ${bots.length}`)), null, lamps),
-    kpi('TPS du serveur', tps ?? '—', 'moyenne mesurée par les bots', stepChart(state.history.tps, { min: 0, max: 20, cls: 'tps' }), tpsCls),
-    kpi('Ping moyen', pingAvg !== null && pingAvg !== undefined ? h('span', null, `${Math.round(pingAvg)}`, h('small', null, ' ms')) : '—', null, stepChart(state.history.ping, { min: 0, cls: 'ping' })),
+    kpi('TPS du serveur', tps ?? '—', 'moyenne mesurée par les bots', stepChart(state.history.tps.slice(-120), { min: 0, max: 20, cls: 'tps' }), tpsCls),
+    kpi('Ping moyen', pingAvg !== null && pingAvg !== undefined ? h('span', null, `${Math.round(pingAvg)}`, h('small', null, ' ms')) : '—', null, stepChart(state.history.ping.slice(-120), { min: 0, cls: 'ping' })),
     kpi('Comportements', running, running ? 'graphes en cours' : 'aucun graphe en cours'),
     kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' ok · '), h('span', { class: failed ? 'error' : '' }, failed), h('small', null, ' ko')), `${reports.length} rapport${reports.length > 1 ? 's' : ''}`))
 }
@@ -455,6 +485,59 @@ function renderBots () {
   if (summary) summary.textContent = all.length ? `${serverLabel()} · ${online}/${all.length} en jeu` : serverLabel()
 }
 
+// --- Traces des déplacements ------------------------------------------------------------
+
+const TRAIL_MAX_POINTS = 2000
+const TRAIL_JUMP = 32 // au-delà, c'est une téléportation : on coupe la trace
+
+/** Couleur propre à un bot (traces, cadre sur la carte, mur des bots). */
+// Couleurs des traces : une couleur bien distincte par bot, attribuée dans l'ordre d'arrivée.
+const TRAIL_COLORS = ['#ffd84a', '#4fd6ff', '#ff7ad9', '#b388ff', '#ff9f43', '#9be564', '#f2f2f2', '#5ec4b6', '#e0b07a', '#8fa8ff', '#ff8a80', '#c6ff6b']
+const colorIndex = new Map()
+
+function botColor (name) {
+  if (!colorIndex.has(name)) colorIndex.set(name, colorIndex.size)
+  const i = colorIndex.get(name)
+  if (i < TRAIL_COLORS.length) return TRAIL_COLORS[i]
+  return `hsl(${Math.round(i * 137.508) % 360}, 75%, 64%)`
+}
+
+function recordTrails () {
+  const now = Date.now()
+  const keep = Math.max(1, state.trailMinutes || 15) * 60000
+  for (const b of state.bots.values()) {
+    if (b.status !== 'online' || !b.position) continue
+    const dim = b.dimension || 'overworld'
+    let trail = state.trails.get(b.id)
+    if (!trail || trail.dim !== dim) {
+      trail = { dim, points: [], dist: 0 }
+      state.trails.set(b.id, trail)
+    }
+    const pts = trail.points
+    const last = pts[pts.length - 1]
+    const { x, z } = b.position
+    if (!last) {
+      pts.push([x, z, now])
+    } else {
+      const d = Math.hypot(x - last[0], z - last[1])
+      if (d >= 0.35) {
+        if (d > TRAIL_JUMP) pts.push(null)
+        else trail.dist += d
+        pts.push([x, z, now])
+      }
+    }
+    while (pts.length && (pts.length > TRAIL_MAX_POINTS || (pts[0] && now - pts[0][2] > keep) || pts[0] === null)) pts.shift()
+  }
+  for (const id of state.trails.keys()) if (!state.bots.has(id)) state.trails.delete(id)
+}
+
+function trailOf (id, dim) {
+  const t = state.trails.get(id)
+  if (!state.trailMinutes || !t || t.dim !== dim) return []
+  const since = Date.now() - state.trailMinutes * 60000
+  return t.points.filter(p => p === null || p[2] >= since)
+}
+
 // --- Carte (vue de dessus) -----------------------------------------------------------------
 
 function svgEl (tag, attrs = {}) {
@@ -464,8 +547,6 @@ function svgEl (tag, attrs = {}) {
 }
 
 function renderMap () {
-  const box = $('map')
-  if (!box || !box.clientWidth) return
   const placed = [...state.bots.values()].filter(b => b.position && b.status === 'online')
   const dims = [...new Set(placed.map(b => b.dimension || 'overworld'))]
   if (!dims.includes(state.mapDim)) state.mapDim = dims.includes('overworld') ? 'overworld' : dims[0] || null
@@ -477,26 +558,41 @@ function renderMap () {
   }
   sel.value = state.mapDim || ''
   sel.style.display = dims.length > 1 ? '' : 'none'
-  U.clear(box)
   const bots = placed.filter(b => (b.dimension || 'overworld') === state.mapDim)
+  if (state.monitor) drawMap($('mon-map'), $('mon-map-legend'), bots, { big: true })
+  else drawMap($('map'), $('map-legend'), bots)
+}
+
+/** Dessine la carte dans un conteneur (tableau de bord ou écran de contrôle). */
+function drawMap (box, legend, bots, { big = false } = {}) {
+  if (!box || !box.clientWidth) return
+  U.clear(box)
   if (!bots.length) {
     box.appendChild(h('div', { class: 'map-empty' }, 'Aucun bot en jeu à afficher'))
-    U.clear($('map-legend'))
+    if (legend) U.clear(legend)
     return
   }
   const W = box.clientWidth
   const H = box.clientHeight
+  const trails = new Map(bots.map(b => [b.id, trailOf(b.id, state.mapDim)]))
   const xs = bots.map(b => b.position.x)
   const zs = bots.map(b => b.position.z)
+  for (const pts of trails.values()) {
+    for (const p of pts) {
+      if (!p) continue
+      xs.push(p[0])
+      zs.push(p[1])
+    }
+  }
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2
   const cz = (Math.min(...zs) + Math.max(...zs)) / 2
-  const span = Math.max(48, (Math.max(...xs) - Math.min(...xs)) * 1.3, (Math.max(...zs) - Math.min(...zs)) * 1.3)
+  const span = Math.max(48, (Math.max(...xs) - Math.min(...xs)) * 1.25, (Math.max(...zs) - Math.min(...zs)) * 1.25)
   const scale = Math.min(W, H) / span
   const px = x => (x - cx) * scale + W / 2
   const pz = z => (z - cz) * scale + H / 2
   const svg = svgEl('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` })
   let step = 16
-  while (step * scale < 10) step *= 4
+  while (step * scale < (big ? 14 : 10)) step *= 4
   const x0 = Math.floor((cx - W / 2 / scale) / step) * step
   const z0 = Math.floor((cz - H / 2 / scale) / step) * step
   for (let x = x0; px(x) <= W; x += step) svg.appendChild(svgEl('line', { x1: Math.round(px(x)) + 0.5, y1: 0, x2: Math.round(px(x)) + 0.5, y2: H, class: x === 0 ? 'axis' : 'grid' }))
@@ -504,32 +600,75 @@ function renderMap () {
   const north = svgEl('text', { x: W - 12, y: 16, class: 'north' })
   north.textContent = 'N'
   svg.appendChild(north)
+
+  // Traces : découpées en tronçons de plus en plus opaques avec le temps.
+  const now = Date.now()
+  const windowMs = (state.trailMinutes || 1) * 60000
+  for (const b of bots) {
+    const pts = trails.get(b.id)
+    if (pts.length < 2) continue
+    const color = botColor(b.id)
+    const open = state.openBot === b.id
+    let seg = []
+    const flush = () => {
+      if (seg.length < 2) return
+      const age = (now - seg[seg.length - 1][2]) / windowMs
+      svg.appendChild(svgEl('polyline', {
+        points: seg.map(p => `${px(p[0]).toFixed(1)},${pz(p[1]).toFixed(1)}`).join(' '),
+        class: `trail${open ? ' open' : ''}`,
+        stroke: color,
+        'stroke-opacity': Math.max(0.12, 0.9 - age * 0.8).toFixed(2)
+      }))
+    }
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]
+      if (!p) {
+        flush()
+        seg = []
+        continue
+      }
+      seg.push(p)
+      if (seg.length >= 12 && i < pts.length - 1) {
+        flush()
+        seg = [p]
+      }
+    }
+    flush()
+  }
+
   const taken = []
   const freeLabelY = (x, y, w) => {
-    let ly = y + 22
+    let ly = y + (big ? 26 : 22)
     while (taken.some(t => Math.abs(t.x - x) < (t.w + w) / 2 && Math.abs(t.y - ly) < 11)) ly += 11
     taken.push({ x, y: ly, w })
     return ly
   }
-  for (const b of bots.sort((a, c) => (a.id === state.openBot) - (c.id === state.openBot))) {
+  const size = big ? 24 : 16
+  for (const b of [...bots].sort((a, c) => (a.id === state.openBot) - (c.id === state.openBot))) {
     const x = Math.round(px(b.position.x))
     const y = Math.round(pz(b.position.z))
     const g = svgEl('g', { class: `map-bot${state.selected.has(b.id) ? ' selected' : ''}${state.openBot === b.id ? ' open' : ''}` })
     const title = svgEl('title')
-    title.textContent = `${b.id} — ${b.position.x} ${b.position.y} ${b.position.z}`
+    const trail = state.trails.get(b.id)
+    title.textContent = `${b.id} — ${b.position.x} ${b.position.y} ${b.position.z}${trail && trail.dist ? ` — ${Math.round(trail.dist)} blocs parcourus` : ''}`
     g.appendChild(title)
-    g.appendChild(svgEl('rect', { x: x - 10, y: y - 10, width: 20, height: 20, class: 'frame' }))
-    g.appendChild(svgEl('image', { href: U.face(b.id), x: x - 8, y: y - 8, width: 16, height: 16, style: 'image-rendering: pixelated' }))
+    g.appendChild(svgEl('rect', { x: x - size / 2 - 2, y: y - size / 2 - 2, width: size + 4, height: size + 4, class: 'frame', stroke: state.trailMinutes ? botColor(b.id) : '#000' }))
+    g.appendChild(svgEl('image', { href: U.face(b.id), x: x - size / 2, y: y - size / 2, width: size, height: size, style: 'image-rendering: pixelated' }))
     const label = svgEl('text', { x, y: freeLabelY(x, y, b.id.length * 7 + 6), class: 'label' })
     label.textContent = b.id
     g.appendChild(label)
-    g.addEventListener('click', () => openDrawer(b.id))
+    g.addEventListener('click', () => {
+      if (state.monitor) toggleMonitor(false)
+      openDrawer(b.id)
+    })
     svg.appendChild(g)
   }
   box.appendChild(svg)
-  U.add(U.clear($('map-legend')),
-    h('span', null, `centre ${Math.round(cx)}, ${Math.round(cz)}`),
-    h('span', null, `1 carreau = ${step} blocs`))
+  if (legend) {
+    U.add(U.clear(legend),
+      h('span', null, `centre ${Math.round(cx)}, ${Math.round(cz)}`),
+      h('span', null, `1 carreau = ${step} blocs`))
+  }
 }
 
 // --- Fil d'évènements ------------------------------------------------------------------------
@@ -550,22 +689,160 @@ function addToFeed (lines) {
 }
 
 function renderFeed () {
-  const box = U.clear($('feed'))
+  renderFeedInto($('feed'), 80)
+  if (state.monitor) renderFeedInto($('mon-feed'), 30)
+}
+
+function renderFeedInto (box, max) {
+  if (!box) return
+  U.clear(box)
   if (!state.feed.length) {
     box.appendChild(h('div', { class: 'muted small feed-empty' }, 'Connexions, morts, expulsions et erreurs apparaîtront ici.'))
     return
   }
-  for (const l of [...state.feed].reverse()) {
+  for (const l of [...state.feed].reverse().slice(0, max)) {
     const [who, graph] = l.source.split('/')
     const bot = SYSTEM_SOURCES.has(who) ? null : who
-    box.appendChild(h('div', { class: `feed-item ${l.level}${bot ? ' clickable' : ''}`, onclick: bot && state.bots.has(bot) ? () => openDrawer(bot) : null },
-      bot ? U.faceImg(bot, 16) : h('span', { class: 'feed-dot' }),
-      h('div', { class: 'feed-text' },
-        h('div', { class: 'feed-meta' }, h('span', null, who), h('span', null, U.fmtTime(l.t))),
-        h('div', null,
-          graph ? h('span', { class: 'feed-graph' }, `${graph} — `) : null,
-          l.message.length > 160 ? `${l.message.slice(0, 158)}…` : l.message))))
+    const open = () => {
+      if (state.monitor) toggleMonitor(false)
+      openDrawer(bot)
+    }
+    box.appendChild(h('div', {
+      class: `feed-item ${l.level}${bot ? ' clickable' : ''}`,
+      onclick: bot && state.bots.has(bot) ? open : null
+    },
+    bot ? U.faceImg(bot, 16) : h('span', { class: 'feed-dot' }),
+    h('div', { class: 'feed-text' },
+      h('div', { class: 'feed-meta' }, h('span', null, who), h('span', null, U.fmtTime(l.t))),
+      h('div', null,
+        graph ? h('span', { class: 'feed-graph' }, `${graph} — `) : null,
+        l.message.length > 160 ? `${l.message.slice(0, 158)}…` : l.message))))
   }
+}
+
+// --- Écran de contrôle (second écran) ---------------------------------------------------------
+
+let monitorClock = null
+
+function toggleMonitor (on = !state.monitor) {
+  state.monitor = on
+  $('monitor').hidden = !on
+  document.body.classList.toggle('monitoring', on)
+  clearInterval(monitorClock)
+  if (on) {
+    U.closePopup()
+    const tick = () => { $('mon-clock').textContent = new Date().toLocaleTimeString('fr-FR') }
+    tick()
+    monitorClock = setInterval(tick, 1000)
+    requestAnimationFrame(() => {
+      renderMonitor()
+      renderMap()
+      renderFeed()
+    })
+  } else {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    const url = new URL(location.href)
+    if (url.searchParams.has('monitor')) {
+      url.searchParams.delete('monitor')
+      history.replaceState(null, '', url)
+    }
+    renderMap()
+  }
+}
+
+function openMonitorWindow () {
+  const token = U.token ? `&token=${encodeURIComponent(U.token)}` : ''
+  window.open(`${location.pathname}?monitor${token}`, 'arthur-bot-monitor', 'popup,width=1600,height=900')
+}
+
+function monitorChart (values, { min = 0, max = null, unit = '', cls = '' } = {}) {
+  const nums = values.filter(v => v !== null && v !== undefined)
+  const current = nums.length ? nums[nums.length - 1] : null
+  return h('div', { class: 'mon-chart-inner' },
+    stepChart(values.length > 1 ? values : [null, null], { min, max, cls }),
+    h('div', { class: 'chart-axis' },
+      h('span', null, nums.length ? `max ${Math.max(...nums)}${unit}` : ''),
+      h('b', null, current !== null ? `${Math.round(current * 10) / 10}${unit}` : '—'),
+      h('span', null, nums.length ? `min ${Math.min(...nums)}${unit}` : '')))
+}
+
+function monitorAlerts (bots, tps) {
+  const alerts = []
+  if (!state.socketOk) alerts.push(['bad', 'Connexion à Arthur\'s Bot perdue'])
+  if (state.ping && !state.ping.pending && state.ping.online === false) alerts.push(['bad', 'Serveur injoignable'])
+  if (tps !== null && tps !== undefined) {
+    if (tps < 15) alerts.push(['bad', `TPS bas : ${tps}`])
+    else if (tps < 18.5) alerts.push(['warn', `TPS en baisse : ${tps}`])
+  }
+  const offline = bots.filter(b => b.status === 'offline').length
+  const reconnecting = bots.filter(b => b.status === 'reconnecting' || b.status === 'connecting').length
+  if (offline) alerts.push(['warn', `${offline} bot${offline > 1 ? 's' : ''} hors ligne`])
+  if (reconnecting) alerts.push(['warn', `${reconnecting} en (re)connexion`])
+  const kicks = lastMinute('kicks')
+  if (kicks) alerts.push(['warn', `${kicks} expulsion${kicks > 1 ? 's' : ''} en 1 min`])
+  const deaths = lastMinute('deaths')
+  if (deaths) alerts.push(['warn', `${deaths} mort${deaths > 1 ? 's' : ''} en 1 min`])
+  if (!alerts.length) alerts.push(['ok', 'Tout est normal'])
+  return alerts
+}
+
+const WALL_ORDER = { offline: 0, reconnecting: 1, connecting: 2, spawning: 3, online: 4 }
+
+function wallTile (b, faceSize) {
+  const reason = (b.lastKick && b.lastKick.reason) || b.lastError
+  return h('div', {
+    class: `wall-tile ${b.status}`,
+    title: `${b.id} — ${STATUS_LABEL[b.status] || b.status}${reason ? ` — ${reason}` : ''}`,
+    onclick: () => {
+      toggleMonitor(false)
+      openDrawer(b.id)
+    }
+  },
+  h('span', { class: 'wall-color', style: { background: botColor(b.id) } }),
+  U.faceImg(b.id, faceSize),
+  h('div', { class: 'wall-text' },
+    h('div', { class: 'wall-name' }, h('span', { class: `led ${b.status}` }), h('span', null, b.id)),
+    b.status === 'online'
+      ? h('div', { class: 'wall-sub' }, meter(b.health, 20, 'health'), h('span', null, b.ping !== null ? `${b.ping} ms` : ''))
+      : h('div', { class: `wall-sub state ${b.status}` }, STATUS_LABEL[b.status] || b.status)))
+}
+
+function renderMonitor () {
+  if (!state.monitor) return
+  const bots = [...state.bots.values()]
+  const online = bots.filter(b => b.status === 'online')
+  const tps = state.history.tps[state.history.tps.length - 1]
+  const pingAvg = state.history.ping[state.history.ping.length - 1]
+  const running = bots.reduce((n, b) => n + b.runtimes.filter(r => r.status === 'running').length, 0)
+  const reports = [...state.reports.values()]
+  const passed = reports.filter(r => r.status === 'passed').length
+  const failed = reports.filter(r => r.status === 'failed' || r.status === 'error').length
+  const r = state.ping
+  $('mon-server').textContent = `${serverLabel()}${r && r.online && r.players ? ` · ${r.players.online}/${r.players.max} joueurs` : ''}${r && r.version ? ` · ${r.version}` : ''}`
+  U.add(U.clear($('mon-alerts')), monitorAlerts(bots, tps).map(([level, text]) => h('span', { class: `alert-chip ${level}` }, text)))
+  const tpsCls = tps === null || tps === undefined ? '' : tps >= 19 ? 'good' : tps >= 15 ? 'meh' : 'bad'
+  const kicks = lastMinute('kicks')
+  U.add(U.clear($('mon-kpis')),
+    kpi('Bots en jeu', h('span', null, `${online.length}`, h('small', null, ` / ${bots.length}`)), null,
+      h('div', { class: 'lamps' }, bots.slice(0, 120).map(b => h('span', { class: `led ${b.status}`, title: b.id })))),
+    kpi('TPS', tps ?? '—', 'mesuré par les bots', null, tpsCls),
+    kpi('Ping moyen', pingAvg !== null && pingAvg !== undefined ? h('span', null, `${Math.round(pingAvg)}`, h('small', null, ' ms')) : '—'),
+    kpi('Connexions / min', lastMinute('connections'), 'dernière minute'),
+    kpi('Expulsions / min', kicks, `${lastMinute('deaths')} mort(s) / min`, null, kicks ? 'meh' : ''),
+    kpi('Messages / min', lastMinute('messages'), 'reçus par les bots'),
+    kpi('Graphes', running, 'en cours'),
+    kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' / '), h('span', { class: failed ? 'error' : '' }, failed)), 'réussis / échoués'))
+  U.add(U.clear($('mon-chart-tps')), monitorChart(state.history.tps, { min: 0, max: 20, cls: 'tps' }))
+  U.add(U.clear($('mon-chart-online')), monitorChart(state.history.online, { min: 0, max: Math.max(1, bots.length), cls: 'online' }))
+  U.add(U.clear($('mon-chart-ping')), monitorChart(state.history.ping, { min: 0, unit: ' ms', cls: 'ping' }))
+  const sorted = [...bots].sort((a, b) => (WALL_ORDER[a.status] ?? 5) - (WALL_ORDER[b.status] ?? 5) || a.id.localeCompare(b.id, 'fr', { numeric: true }))
+  // Densité du mur : grandes tuiles pour quelques bots, tuiles compactes pour un test de charge.
+  const density = bots.length <= 12 ? 'roomy' : bots.length > 60 ? 'dense' : ''
+  const wall = U.clear($('mon-wall'))
+  wall.className = `mon-wall ${density}`
+  const faceSize = density === 'roomy' ? 36 : density === 'dense' ? 16 : 28
+  U.add(wall, sorted.length ? sorted.map(b => wallTile(b, faceSize)) : h('div', { class: 'muted' }, 'Aucun bot.'))
+  $('mon-wall-sum').textContent = `${online.length} en jeu · ${bots.length - online.length} hors jeu`
 }
 
 // --- Menus d'actions groupées -----------------------------------------------------------------
@@ -705,6 +982,7 @@ function openDrawer (id) {
 }
 
 function closeDrawer () {
+  stopViewer()
   state.openBot = null
   $('drawer').classList.add('hidden')
   renderBots()
@@ -750,7 +1028,7 @@ async function renderDrawer (full = false) {
     b.lastError ? h('div', { class: 'alert error' }, `Dernière erreur : ${b.lastError}`) : null)
 
   const tabs = drawer.querySelector('.drawer-tabs')
-  const names = { console: 'Console', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', graphs: 'Graphes', plugins: 'Plugins', logs: 'Journal' }
+  const names = { console: 'Console', view3d: 'Vue 3D', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', graphs: 'Graphes', plugins: 'Plugins', logs: 'Journal' }
   U.clear(tabs)
   for (const [key, label] of Object.entries(names)) {
     tabs.appendChild(h('button', {
@@ -767,9 +1045,11 @@ async function renderDrawer (full = false) {
     if (state.drawerTab === 'graphs') renderDrawerGraphs(drawer.querySelector('.drawer-body'), b)
     return
   }
+  stopViewer()
   const body = U.clear(drawer.querySelector('.drawer-body'))
   switch (state.drawerTab) {
     case 'console': return renderConsole(body, b)
+    case 'view3d': return renderView3D(body, b)
     case 'controls': return renderControls(body, b)
     case 'mode': return renderMode(body, b)
     case 'inventory': return renderInventory(body, b)
@@ -794,6 +1074,83 @@ function hud (b) {
       title: it ? `${it.name} ×${it.count} — case ${i + 1}` : `Case ${i + 1} vide`,
       onclick: () => botAction(b.id, 'hotbar', { slot: i })
     }, it ? h('span', { class: 'hud-item' }, it.name.replace(/_/g, ' ')) : null, it && it.count > 1 ? h('span', { class: 'count' }, it.count) : null))))
+}
+
+// --- Vue 3D --------------------------------------------------------------------------------
+
+const CARDINALS = ['nord', 'nord-ouest', 'ouest', 'sud-ouest', 'sud', 'sud-est', 'est', 'nord-est']
+
+function stopViewer () {
+  if (state.viewer) state.viewer.stop()
+  state.viewer = null
+}
+
+async function renderView3D (body, b) {
+  const stage = h('div', { class: 'viewer-stage' })
+  const coords = h('div', { class: 'viewer-coords' })
+  const status = h('div', { class: 'viewer-status' }, 'Chargement de la vue…')
+  const wrap = h('div', { class: 'viewer-wrap' }, stage, h('div', { class: 'crosshair' }), coords, status)
+  const modeBtn = (mode, label) => h('button', {
+    class: 'btn small',
+    dataset: { mode },
+    onclick: () => {
+      if (state.viewer) state.viewer.setMode(mode)
+      syncModes(mode)
+    }
+  }, label)
+  const modes = [modeBtn('eyes', 'Yeux du bot'), modeBtn('orbit', 'Orbite')]
+  const syncModes = mode => {
+    modes.forEach(m => m.classList.toggle('primary', m.dataset.mode === mode))
+    wrap.classList.toggle('orbit', mode === 'orbit')
+  }
+  const radius = h('select', {
+    class: 'small',
+    title: 'Distance de vue',
+    onchange: ev => {
+      U.store('view-radius', Number(ev.target.value))
+      if (state.viewer) state.viewer.setRadius(Number(ev.target.value))
+    }
+  }, [12, 20, 28].map(r => h('option', { value: r }, `${r} blocs`)))
+  radius.value = U.store('view-radius') || 20
+  U.add(body,
+    h('div', { class: 'row wrap viewer-toolbar' }, modes, radius, h('span', { class: 'grow' }),
+      h('button', { class: 'btn small', title: 'Plein écran', onclick: () => wrap.requestFullscreen && wrap.requestFullscreen() }, 'Plein écran')),
+    wrap,
+    h('p', { class: 'muted tiny' }, 'Glisser pour tourner autour du bot, molette pour zoomer. Couleurs calculées à partir des blocs (aucune texture du jeu).'))
+  syncModes('eyes')
+  if (b.status !== 'online') {
+    status.textContent = 'Le bot doit être en jeu pour afficher sa vue.'
+    return
+  }
+  let mod
+  try {
+    mod = await import('./viewer.js')
+  } catch (err) {
+    status.textContent = `Vue 3D indisponible : ${err.message}`
+    return
+  }
+  if (state.openBot !== b.id || state.drawerTab !== 'view3d' || !wrap.isConnected) return
+  stopViewer()
+  state.viewer = new mod.BotViewer(stage, {
+    botId: b.id,
+    api: path => U.api('GET', path),
+    face: U.face,
+    onInfo: info => {
+      if (info.mode) return syncModes(info.mode)
+      if (!info.ok) {
+        status.textContent = `Vue interrompue : ${info.error}`
+        status.hidden = false
+        return
+      }
+      status.hidden = true
+      const p = info.view.pose
+      let deg = (((Math.PI - p.yaw) * 180) / Math.PI) % 360
+      if (deg < 0) deg += 360
+      const card = CARDINALS[Math.round(((deg + 180) % 360) / 45) % 8]
+      coords.textContent = `XYZ ${p.x.toFixed(1)} / ${p.y.toFixed(1)} / ${p.z.toFixed(1)}  ·  regard ${card}  ·  ${info.view.entities.length} entité${info.view.entities.length > 1 ? 's' : ''}`
+    }
+  })
+  state.viewer.setRadius(Number(radius.value))
 }
 
 function stat (label, value) {
@@ -1269,12 +1626,17 @@ function renderHelp () {
 
 async function init () {
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)))
-  // Raccourcis : 1 à 5 = onglets (barre d'inventaire), T ou / = chat, N = nouveau bot, Échap = fermer la fiche.
+  // Raccourcis : 1 à 5 = onglets (barre d'inventaire), T ou / = chat, N = nouveau bot, M = écran de contrôle,
+  // Échap = quitter l'écran de contrôle ou fermer la fiche.
   const tabKeys = ['dashboard', 'editor', 'reports', 'logs', 'help']
   document.addEventListener('keydown', ev => {
     // Échap ferme la fiche, même depuis sa console (sauf menu ou fenêtre ouverts).
     if (ev.key === 'Escape') {
       if (document.querySelector('.popup, dialog[open]') || document.activeElement === $('bulk-chat')) return
+      if (state.monitor) {
+        toggleMonitor(false)
+        return
+      }
       if (state.openBot) {
         if (document.activeElement) document.activeElement.blur()
         closeDrawer()
@@ -1284,6 +1646,12 @@ async function init () {
     const tag = (document.activeElement && document.activeElement.tagName) || ''
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || ev.ctrlKey || ev.metaKey || ev.altKey) return
     if (document.querySelector('dialog[open]')) return
+    if (ev.key === 'm' || ev.key === 'M') {
+      ev.preventDefault()
+      toggleMonitor()
+      return
+    }
+    if (state.monitor) return
     if (/^[1-5]$/.test(ev.key)) showTab(tabKeys[Number(ev.key) - 1])
     const onDashboard = $('tab-dashboard').classList.contains('active')
     if (onDashboard && (ev.key === 't' || ev.key === 'T' || ev.key === '/')) {
@@ -1319,6 +1687,17 @@ async function init () {
   $('server-form').addEventListener('submit', saveServer)
   $('srv-cancel').addEventListener('click', () => $('server-dialog').close())
   $('new-bot-btn').addEventListener('click', openNewBot)
+  $('monitor-btn').addEventListener('click', () => toggleMonitor(true))
+  $('mon-exit').addEventListener('click', () => toggleMonitor(false))
+  $('mon-window').addEventListener('click', openMonitorWindow)
+  $('mon-full').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    else $('monitor').requestFullscreen().catch(err => U.toast(`Plein écran refusé : ${err.message}`, 'warn'))
+  })
+  document.addEventListener('fullscreenchange', () => {
+    $('mon-full').textContent = document.fullscreenElement === $('monitor') ? 'Quitter le plein écran' : 'Plein écran'
+    requestAnimationFrame(() => renderMap())
+  })
   $('create-form').addEventListener('submit', createBots)
   $('create-cancel').addEventListener('click', () => $('new-bot-dialog').close())
   for (const d of document.querySelectorAll('dialog')) {
@@ -1337,6 +1716,17 @@ async function init () {
   document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => bulk(b.dataset.bulk)))
   document.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => openBulkMenu(b)))
   setupChatbar()
+  const trailSel = $('trail-minutes')
+  trailSel.value = String(state.trailMinutes)
+  trailSel.addEventListener('change', ev => {
+    state.trailMinutes = Number(ev.target.value)
+    U.store('trail-minutes', state.trailMinutes)
+    renderMap()
+  })
+  $('trail-clear').addEventListener('click', () => {
+    state.trails.clear()
+    renderMap()
+  })
   $('map-dim').addEventListener('change', ev => {
     state.mapDim = ev.target.value
     renderMap()
@@ -1371,14 +1761,25 @@ async function init () {
 
   const socket = io({ auth: { token: U.token } })
   const conn = document.getElementById('conn-status')
-  socket.on('connect', () => { conn.className = 'led conn ok'; conn.title = 'Connecté au serveur' })
-  socket.on('disconnect', () => { conn.className = 'led conn ko'; conn.title = 'Déconnecté du serveur' })
+  socket.on('connect', () => {
+    state.socketOk = true
+    conn.className = 'led conn ok'
+    conn.title = 'Connecté au serveur'
+  })
+  socket.on('disconnect', () => {
+    state.socketOk = false
+    conn.className = 'led conn ko'
+    conn.title = 'Déconnecté du serveur'
+    renderMonitor()
+  })
   socket.on('bots', list => {
     state.bots = new Map(list.map(b => [b.id, b]))
     sampleHistory()
+    recordTrails()
     renderBots()
     renderKpis()
     renderMap()
+    renderMonitor()
     if (state.openBot) renderDrawer(false)
     editor.updateRunInfo()
   })
@@ -1408,6 +1809,7 @@ async function init () {
   socket.on('reportsCleared', loadReports)
 
   showTab(U.store('tab') || 'dashboard')
+  if (new URLSearchParams(location.search).has('monitor')) toggleMonitor(true)
 }
 
 init()
