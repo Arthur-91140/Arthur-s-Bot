@@ -24,84 +24,54 @@
   </header>
 
   <main>
-    <!-- Tableau de bord -->
+    <!-- Bots -->
     <section id="tab-dashboard" class="tab active">
       <div class="dash">
-        <aside class="side">
-          <div class="panel">
-            <h3>Serveur</h3>
-            <div class="row">
-              <div class="field grow"><label for="srv-host">Adresse</label><input id="srv-host" type="text" placeholder="localhost"></div>
-              <div class="field w90"><label for="srv-port">Port</label><input id="srv-port" type="number" placeholder="25565"></div>
-            </div>
-            <div class="row">
-              <div class="field grow"><label for="srv-version">Version</label><select id="srv-version"></select></div>
-              <button id="ping-btn" class="btn" type="button">Ping</button>
-            </div>
-            <div id="ping-result"></div>
-          </div>
+        <div class="dash-main">
+          <div id="server-entry" class="server-entry panel"></div>
+          <div id="kpis" class="kpis"></div>
 
-          <form id="create-form" class="panel" autocomplete="off">
-            <h3>Créer des bots</h3>
-            <div class="row">
-              <div class="field grow"><label for="c-username">Pseudo ou motif</label><input id="c-username" name="username" type="text" placeholder="Testeur ou Bot_{i}"></div>
-              <div class="field w70"><label for="c-count">Nombre</label><input id="c-count" name="count" type="number" min="1" max="500" value="1"></div>
+          <div class="panel roster-panel">
+            <div class="roster-toolbar">
+              <label class="check select-all"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
+              <div id="status-filters" class="seg"></div>
+              <input id="bot-search" type="search" class="grow" placeholder="Filtrer par nom ou mode…">
+              <button id="new-bot-btn" class="btn primary" title="Nouveau bot (N)">+ Nouveau bot</button>
             </div>
-            <div class="row">
-              <div class="field grow"><label for="c-delay">Délai entre connexions (ms)</label><input id="c-delay" name="joinDelay" type="number" min="0" step="100"></div>
-              <div class="field grow"><label for="c-auth">Authentification</label>
-                <select id="c-auth" name="auth">
-                  <option value="offline">Hors ligne</option>
-                  <option value="microsoft">Microsoft</option>
-                </select>
-              </div>
-            </div>
-            <div class="row">
-              <div class="field grow"><label for="create-mode">Mode initial</label><select id="create-mode" name="mode"></select></div>
-              <div class="field grow"><label for="create-graph">Comportement</label><select id="create-graph" name="graph"></select></div>
-            </div>
-            <details class="options">
-              <summary>Options</summary>
-              <label class="check"><input type="checkbox" name="autoReconnect"><span>Reconnexion automatique</span></label>
-              <label class="check"><input type="checkbox" name="autoRespawn"><span>Réapparition automatique</span></label>
-              <label class="check"><input type="checkbox" name="autoEat"><span>Manger automatiquement</span></label>
-              <label class="check"><input type="checkbox" name="autoArmor"><span>Équiper l'armure ramassée</span></label>
-              <label class="check"><input type="checkbox" name="acceptResourcePack"><span>Accepter le pack de ressources</span></label>
-              <label class="check"><input type="checkbox" name="authme"><span>AuthMe : /register et /login automatiques</span></label>
-              <div class="field"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
-            </details>
-            <button class="btn primary full" type="submit">Créer et connecter</button>
-            <p class="muted tiny">« {i} » est remplacé par un numéro (1, 2, 3…). En mode hors ligne, un pseudo fait au plus 16 caractères.</p>
-          </form>
-        </aside>
-
-        <div class="bots-area">
-          <div class="bulkbar panel">
-            <div class="bulk-head">
-              <label class="check"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
-              <span class="muted tiny">— actions sur la sélection, ou sur tous les bots si rien n'est coché</span>
-            </div>
-            <div class="row wrap">
+            <div class="bulk-actions">
+              <span id="bulk-target" class="bulk-target"></span>
               <button class="btn small success" data-bulk="connect">Connecter</button>
               <button class="btn small" data-bulk="disconnect">Déconnecter</button>
               <button class="btn small" data-bulk="reconnect">Reconnecter</button>
-              <button class="btn small" data-bulk="stop">Stop mouvements</button>
+              <button class="btn small" data-bulk="stop">Stop</button>
+              <span class="sep"></span>
+              <button class="btn small" data-menu="mode">Mode ▾</button>
+              <button class="btn small" data-menu="graph">Graphe ▾</button>
+              <button class="btn small" data-menu="signal">Signal ▾</button>
+              <span class="sep"></span>
               <button class="btn small danger-ghost" data-bulk="remove">Supprimer</button>
             </div>
-            <div class="row wrap">
-              <select id="bulk-mode" class="small" title="Appliquer un mode"></select>
-              <select id="bulk-graph" class="small" title="Lancer un graphe"></select>
-              <button id="stop-all-graphs" class="btn small danger">Arrêter les graphes</button>
-              <input id="bulk-signal" type="text" class="w120 small" placeholder="Signal" value="go">
-              <button id="bulk-signal-btn" class="btn small">Envoyer le signal</button>
-            </div>
-            <div class="row">
-              <input id="bulk-chat" type="text" class="grow" placeholder="Message ou /commande envoyé par la sélection">
-              <button id="bulk-chat-btn" class="btn small primary">Envoyer</button>
-            </div>
+            <div id="bots-grid" class="roster-wrap"></div>
           </div>
-          <div id="bots-grid" class="panel roster-wrap"></div>
+
+          <form id="chatbar" class="chatbar" autocomplete="off">
+            <span id="chat-target" class="chat-target"></span>
+            <input id="bulk-chat" type="text" placeholder="T pour écrire, / pour une commande — envoyé par les bots ciblés">
+            <button class="btn small primary" type="submit">Envoyer</button>
+          </form>
         </div>
+
+        <aside class="dash-side">
+          <div class="panel map-panel">
+            <div class="panel-title"><h3 class="grow">Carte</h3><select id="map-dim" class="small"></select></div>
+            <div id="map" class="map inset"></div>
+            <div id="map-legend" class="map-legend"></div>
+          </div>
+          <div class="panel feed-panel">
+            <div class="panel-title"><h3 class="grow">Évènements</h3><button id="feed-clear" class="btn small">Vider</button></div>
+            <div id="feed" class="feed"></div>
+          </div>
+        </aside>
       </div>
     </section>
 
@@ -113,10 +83,10 @@
       <div class="reports">
         <div class="panel report-side">
           <div class="row panel-title"><h3 class="grow">Rapports</h3><button id="reports-clear" class="btn small danger-ghost">Effacer les terminés</button></div>
-          <div id="report-summary" class="muted small"></div>
+          <div id="report-summary" class="report-tiles"></div>
           <div id="report-list"></div>
         </div>
-        <div id="report-detail" class="panel report-detail"><p class="muted">Sélectionnez un rapport.</p></div>
+        <div id="report-detail" class="panel report-detail"></div>
       </div>
     </section>
 
@@ -125,12 +95,7 @@
       <div class="panel logs">
         <div class="row wrap">
           <select id="log-source"></select>
-          <select id="log-level">
-            <option value="">Tous les niveaux</option>
-            <option value="info">Info et plus</option>
-            <option value="warn">Avertissements et erreurs</option>
-            <option value="error">Erreurs</option>
-          </select>
+          <div id="log-levels" class="seg"></div>
           <input id="log-search" type="search" placeholder="Filtrer…" class="grow">
           <label class="check"><input id="log-pause" type="checkbox"><span>Pause</span></label>
           <button id="log-clear" class="btn small">Vider l'affichage</button>
@@ -149,6 +114,66 @@
     <div class="drawer-tabs"></div>
     <div class="drawer-body"></div>
   </aside>
+
+  <dialog id="server-dialog" class="screen">
+    <form id="server-form" autocomplete="off">
+      <h2 class="screen-title">Modifier le serveur</h2>
+      <div class="field"><label for="srv-host">Adresse du serveur</label><input id="srv-host" type="text" placeholder="localhost ou play.exemple.fr"></div>
+      <div class="row">
+        <div class="field w120"><label for="srv-port">Port</label><input id="srv-port" type="number" placeholder="25565"></div>
+        <div class="field grow"><label for="srv-version">Version des bots</label><select id="srv-version"></select></div>
+      </div>
+      <div id="srv-test-result"></div>
+      <div class="screen-actions">
+        <button class="btn" type="button" id="srv-test">Tester</button>
+        <span class="grow"></span>
+        <button class="btn" type="button" id="srv-cancel">Annuler</button>
+        <button class="btn primary" type="submit" id="srv-save">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="new-bot-dialog" class="screen">
+    <form id="create-form" autocomplete="off">
+      <h2 class="screen-title">Nouveaux bots</h2>
+      <p class="muted small" id="create-server"></p>
+      <div class="row">
+        <div class="field grow"><label for="c-username">Pseudo ou motif</label><input id="c-username" name="username" type="text" placeholder="Testeur ou Bot_{i}"></div>
+        <div class="field w90"><label for="c-count">Nombre</label><input id="c-count" name="count" type="number" min="1" max="500" value="1"></div>
+      </div>
+      <div class="row">
+        <div class="field grow"><label for="c-delay">Délai entre connexions (ms)</label><input id="c-delay" name="joinDelay" type="number" min="0" step="100"></div>
+        <div class="field grow"><label for="c-auth">Authentification</label>
+          <select id="c-auth" name="auth">
+            <option value="offline">Hors ligne</option>
+            <option value="microsoft">Microsoft</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field grow"><label for="create-mode">Mode initial</label><select id="create-mode" name="mode"></select></div>
+        <div class="field grow"><label for="create-graph">Comportement</label><select id="create-graph" name="graph"></select></div>
+      </div>
+      <details class="options">
+        <summary>Options avancées</summary>
+        <div class="options-grid">
+          <label class="check"><input type="checkbox" name="autoReconnect"><span>Reconnexion automatique</span></label>
+          <label class="check"><input type="checkbox" name="autoRespawn"><span>Réapparition automatique</span></label>
+          <label class="check"><input type="checkbox" name="autoEat"><span>Manger automatiquement</span></label>
+          <label class="check"><input type="checkbox" name="autoArmor"><span>Équiper l'armure ramassée</span></label>
+          <label class="check"><input type="checkbox" name="acceptResourcePack"><span>Accepter le pack de ressources</span></label>
+          <label class="check"><input type="checkbox" name="authme"><span>AuthMe automatique</span></label>
+        </div>
+        <div class="field"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
+      </details>
+      <p class="muted tiny">« {i} » est remplacé par 1, 2, 3… En mode hors ligne, un pseudo fait au plus 16 caractères.</p>
+      <div class="screen-actions">
+        <span class="grow"></span>
+        <button class="btn" type="button" id="create-cancel">Annuler</button>
+        <button class="btn primary" type="submit">Créer et connecter</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toasts"></div>
 

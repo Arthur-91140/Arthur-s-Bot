@@ -28,6 +28,15 @@ function loadPvp (bot) {
 }
 const CHAT_HISTORY = 300
 
+/** Les 9 cases de la barre rapide (affichage façon HUD dans l'interface). */
+function hotbarOf (bot) {
+  const start = bot.inventory.hotbarStart ?? 36
+  return Array.from({ length: 9 }, (_, i) => {
+    const it = bot.inventory.slots[start + i]
+    return it ? { name: it.name, count: it.count } : null
+  })
+}
+
 /** Yaw mineflayer (radians) -> yaw affiché par F3 (degrés, 0 = sud). */
 function notchianYaw (yaw) {
   let deg = ((Math.PI - yaw) * 180) / Math.PI
@@ -574,6 +583,9 @@ class BotInstance extends EventEmitter {
       gameMode: online && bot.game ? bot.game.gameMode : null,
       ping: online && bot.player ? bot.player.ping : null,
       level: online && bot.experience ? bot.experience.level : null,
+      xp: online && bot.experience ? { level: bot.experience.level, progress: u.round(bot.experience.progress || 0, 3) } : null,
+      quickBarSlot: online ? bot.quickBarSlot : null,
+      hotbar: online ? hotbarOf(bot) : null,
       players: online ? Object.keys(bot.players).length : null,
       tps: this.tps,
       heldItem: online && bot.heldItem ? bot.heldItem.name : null,

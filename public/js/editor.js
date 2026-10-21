@@ -58,12 +58,8 @@ class GraphEditor {
     e.toolbar = h('div', { class: 'editor-toolbar' },
       h('div', { class: 'group' }, e.graphSelect, e.title, e.dirty),
       h('div', { class: 'group' },
-        btn('Nouveau', 'Nouveau graphe', () => this.newGraph()),
+        btn('Fichier ▾', 'Nouveau, copie, import, export…', ev => this.showFileMenu(ev.currentTarget)),
         btn('Enregistrer', 'Enregistrer (Ctrl+S)', () => this.save(), 'primary'),
-        btn('Copie', 'Enregistrer une copie', () => this.save(true)),
-        btn('Supprimer', 'Supprimer ce graphe du disque', () => this.removeSaved(), 'danger-ghost'),
-        btn('Importer', 'Importer un fichier JSON', () => e.fileInput.click()),
-        btn('Exporter', 'Télécharger en JSON', () => this.exportFile()),
         btn('Vérifier', 'Valider le graphe', () => this.validate(true))),
       h('div', { class: 'group' },
         btn('▶ Lancer', 'Exécuter ce graphe (même non enregistré) sur des bots', ev => this.showRunMenu(ev.currentTarget), 'success'),
@@ -89,7 +85,9 @@ class GraphEditor {
     e.box = h('div', { class: 'select-box', style: { display: 'none' } })
     e.hint = h('div', { class: 'canvas-hint' },
       'Glissez un nœud depuis la palette · double-clic : ajout rapide · reliez une sortie à une entrée · molette : zoom · clic droit : menu')
-    e.canvas = h('div', { class: 'canvas', tabindex: '0' }, e.world, e.box, e.hint)
+    e.status = h('div', { class: 'canvas-status' })
+    e.minimap = h('canvas', { class: 'minimap', width: 180, height: 120, title: 'Vue d\'ensemble : cliquez pour vous déplacer' })
+    e.canvas = h('div', { class: 'canvas', tabindex: '0' }, e.world, e.box, e.hint, e.status, e.minimap)
 
     e.inspector = h('aside', { class: 'inspector' })
     this.root.appendChild(h('div', { class: 'editor' }, e.toolbar, h('div', { class: 'editor-body' }, e.palette, e.canvas, e.inspector)))
@@ -114,6 +112,28 @@ class GraphEditor {
       }
     })
     document.addEventListener('keydown', ev => this.onKey(ev))
+    const navigate = ev => {
+      if (!this.mini) return
+      const r = e.minimap.getBoundingClientRect()
+      const wx = this.mini.x0 + (ev.clientX - r.left) / this.mini.scale
+      const wy = this.mini.y0 + (ev.clientY - r.top) / this.mini.scale
+      const c = e.canvas.getBoundingClientRect()
+      this.view.x = c.width / 2 - wx * this.view.zoom
+      this.view.y = c.height / 2 - wy * this.view.zoom
+      this.applyView()
+    }
+    e.minimap.addEventListener('mousedown', ev => {
+      ev.stopPropagation()
+      ev.preventDefault()
+      navigate(ev)
+      const move = m => navigate(m)
+      const up = () => {
+        window.removeEventListener('mousemove', move)
+        window.removeEventListener('mouseup', up)
+      }
+      window.addEventListener('mousemove', move)
+      window.addEventListener('mouseup', up)
+    })
     e.inspector.addEventListener('focusin', () => { this.pendingSnapshot = this.snapshot() })
     window.addEventListener('beforeunload', ev => {
       if (this.dirty) {
@@ -218,6 +238,7 @@ class GraphEditor {
     this.dirty = true
     this.el.dirty.textContent = '●'
     this.saveDraft()
+    this.scheduleOverview()
   }
 
   saveDraft () {
@@ -327,6 +348,18 @@ class GraphEditor {
     } catch (err) {
       U.toast(err.message, 'error')
     }
+  }
+
+  showFileMenu (anchor) {
+    U.menu(anchor, [
+      { label: 'Nouveau graphe', onClick: () => this.newGraph() },
+      { label: 'Enregistrer une copie…', onClick: () => this.save(true) },
+      '-',
+      { label: 'Importer un fichier JSON…', onClick: () => this.el.fileInput.click() },
+      { label: 'Exporter en JSON', onClick: () => this.exportFile() },
+      '-',
+      { label: 'Supprimer du disque', danger: true, disabled: !this.graph.id, onClick: () => this.removeSaved() }
+    ])
   }
 
   exportFile () {
@@ -587,6 +620,69 @@ class GraphEditor {
       svg.appendChild(hit)
     }
     svg.appendChild(this.el.tempPath)
+    this.scheduleOverview()
+  }
+
+  /** Barre d'état et minicarte, regroupées sur une image d'animation. */
+  scheduleOverview () {
+    if (this._overview) return
+    this._overview = requestAnimationFrame(() => {
+      this._overview = null
+      this.renderStatus()
+      this.renderMinimap()
+    })
+  }
+
+  renderStatus () {
+    if (!this.graph) return
+    const g = this.graph
+    const parts = [`${g.nodes.length} nœud${g.nodes.length > 1 ? 's' : ''}`, `${g.links.length} lien${g.links.length > 1 ? 's' : ''}`]
+    if (this.selected.size) parts.push(`${this.selected.size} sélectionné${this.selected.size > 1 ? 's' : ''}`)
+    parts.push(`zoom ${Math.round(this.view.zoom * 100)} %`)
+    if (this.dirty) parts.push('non enregistré')
+    this.el.status.textContent = parts.join(' · ')
+  }
+
+  renderMinimap () {
+    const cv = this.el.minimap
+    const ctx = cv.getContext('2d')
+    ctx.clearRect(0, 0, cv.width, cv.height)
+    const nodes = this.graph ? this.graph.nodes : []
+    if (!nodes.length) {
+      this.mini = null
+      return
+    }
+    const c = this.el.canvas.getBoundingClientRect()
+    const view = { x: -this.view.x / this.view.zoom, y: -this.view.y / this.view.zoom, w: c.width / this.view.zoom, h: c.height / this.view.zoom }
+    let x0 = view.x
+    let y0 = view.y
+    let x1 = view.x + view.w
+    let y1 = view.y + view.h
+    for (const n of nodes) {
+      const el = this.nodeEls.get(n.id)
+      x0 = Math.min(x0, n.x)
+      y0 = Math.min(y0, n.y)
+      x1 = Math.max(x1, n.x + (el ? el.offsetWidth : 200))
+      y1 = Math.max(y1, n.y + (el ? el.offsetHeight : 70))
+    }
+    const pad = 40
+    x0 -= pad
+    y0 -= pad
+    x1 += pad
+    y1 += pad
+    const scale = Math.min(cv.width / (x1 - x0), cv.height / (y1 - y0))
+    this.mini = { x0, y0, scale }
+    for (const n of nodes) {
+      const el = this.nodeEls.get(n.id)
+      const def = this.defs.get(n.type)
+      ctx.fillStyle = def ? def.color : '#a32420'
+      ctx.fillRect(Math.round((n.x - x0) * scale), Math.round((n.y - y0) * scale),
+        Math.max(2, Math.round((el ? el.offsetWidth : 200) * scale)), Math.max(2, Math.round((el ? el.offsetHeight : 70) * scale)))
+    }
+    ctx.strokeStyle = '#ffff55'
+    ctx.lineWidth = 1
+    ctx.strokeRect(Math.round((view.x - x0) * scale) + 0.5, Math.round((view.y - y0) * scale) + 0.5,
+      Math.round(view.w * scale), Math.round(view.h * scale))
   }
 
   renderInspector () {
@@ -680,6 +776,7 @@ class GraphEditor {
     this.el.canvas.style.backgroundSize = `${size}px ${size}px, ${size}px ${size}px, ${big}px ${big}px, ${big}px ${big}px`
     this.el.canvas.style.backgroundPosition = `${x}px ${y}px`
     this.el.zoomLabel.textContent = `${Math.round(zoom * 100)} %`
+    this.scheduleOverview()
   }
 
   toWorld (clientX, clientY) {
@@ -973,6 +1070,7 @@ class GraphEditor {
   refreshSelection () {
     for (const [id, el] of this.nodeEls) el.classList.toggle('selected', this.selected.has(id))
     this.renderInspector()
+    this.scheduleOverview()
   }
 
   addNode (type, x, y, params = {}) {

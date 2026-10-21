@@ -55,12 +55,12 @@ Options utiles : `--host`, `--port` (serveur Minecraft), `--version 1.20.4`, `--
 
 ## L'interface web
 
-Le design reprend le langage visuel des menus de Minecraft : coins carrés, reliefs biseautés, vraies cases d'inventaire, infobulles à bordure violette, police pixel [Monocraft](https://github.com/IdreesInc/Monocraft). Comme sur une IHM industrielle, la base reste grise et la couleur ne sert qu'à signaler un état : vert = en jeu, orange = connexion, rouge = erreur. Le thème suit le réglage du système : sombre « ardoise » ou clair « inventaire ». Les touches **1 à 5** changent d'onglet, comme la barre d'inventaire, et **Échap** ferme la fiche d'un bot. Toutes les polices sont servies localement : l'interface fonctionne sans Internet.
+Le design reprend le langage visuel des menus de Minecraft : coins carrés, reliefs biseautés, vraies cases d'inventaire, infobulles à bordure violette, police pixel [Monocraft](https://github.com/IdreesInc/Monocraft). Comme sur une IHM industrielle, la base reste grise et la couleur ne sert qu'à signaler un état : vert = en jeu, orange = connexion, rouge = erreur. Le thème suit le réglage du système : sombre « ardoise » ou clair « inventaire ». Raccourcis : **1 à 5** pour changer d'onglet (comme la barre d'inventaire), **T** ou **/** pour écrire dans le chat, **N** pour créer un bot, **Échap** pour fermer la fiche d'un bot. Toutes les polices sont servies localement : l'interface fonctionne sans Internet.
 
 | Onglet | Contenu |
 | --- | --- |
-| **Bots** | Ping du serveur (version, protocole, joueurs, MOTD, latence), création de bots/essaims, tableau des bots (voyant d'état, jauges de vie et de faim en 10 cases, position, ping, **TPS estimé**, mode, graphes), actions groupées (connexion, déconnexion, chat, mode, graphe, signal, suppression). |
-| **Fiche d'un bot** | Console de chat en direct (historique ↑), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
+| **Bots** | Le serveur affiché comme dans la liste multijoueur (icône, MOTD, joueurs, barres de ping, rafraîchi toutes les 20 s). Des indicateurs : bots en jeu, **TPS** et ping moyens avec leur historique, graphes en cours, tests réussis/échoués. Un tableau des bots triable et filtrable, avec un visage pixel propre à chaque bot et des jauges de vie et de faim en 10 cases. Des actions groupées (mode, graphe et signal dans des menus). Une **carte vue de dessus** des positions, un **fil d'évènements** (connexions, morts, expulsions, erreurs) et une barre de chat comme en jeu. |
+| **Fiche d'un bot** | **HUD du jeu** (cœurs, faim, barre d'expérience, barre d'objets cliquable), console de chat en direct (historique ↑), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
 | **Éditeur de comportements** | Programmation visuelle (voir plus bas). |
 | **Rapports** | Résultats des tests : statut, vérifications ✔/✘, mesures (min/moy/max + courbe), journal, erreurs ; export JSON. |
 | **Journal** | Tous les logs, filtrables par bot, niveau et texte. |
@@ -100,6 +100,8 @@ L'éditeur (onglet **Éditeur de comportements**) permet de construire un compor
 - Une sortie reliée à plusieurs nœuds lance les branches **en parallèle** ; « Séquence » les exécute dans l'ordre.
 - Les boucles sont possibles (relier un nœud en arrière, « Répéter », « Tant que », « Pour chaque joueur »). Une boucle sans attente est automatiquement interrompue avec un message clair.
 - Les paramètres acceptent des **expressions** : `bot.health < 10`, `{{ event.username }}`… (voir ci-dessous).
+
+Le menu **Fichier** regroupe nouveau, copie, import, export et suppression. Une barre d'état et une **minicarte** cliquable aident à naviguer dans les grands graphes.
 
 **Utilisation de l'éditeur** : glisser un nœud depuis la palette (ou double-clic sur le fond pour l'ajout rapide), glisser une sortie vers un nœud pour relier, glisser une entrée reliée pour détacher le lien, clic droit pour le menu contextuel, molette pour zoomer, Maj+glisser pour une sélection rectangulaire. Raccourcis : Suppr, Ctrl+C/V/D, Ctrl+Z/Y, Ctrl+S, Ctrl+A, F (tout afficher).
 

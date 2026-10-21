@@ -174,5 +174,149 @@ const U = (() => {
       p.help ? h('small', null, p.help) : null)
   }
 
-  return { h, add, clear, api, toast, fmtTime, fmtDuration, store, download, paramInput, optionList, get token () { return token } }
+  // --- Menus surgissants (style infobulle d'objet) ---------------------------
+  let currentPopup = null
+
+  function closePopup () {
+    if (!currentPopup) return
+    currentPopup.el.remove()
+    document.removeEventListener('mousedown', currentPopup.outside, true)
+    document.removeEventListener('keydown', currentPopup.key, true)
+    currentPopup = null
+  }
+
+  function popup (anchor, content, { align = 'left' } = {}) {
+    closePopup()
+    const el = h('div', { class: 'popup' }, content)
+    document.body.appendChild(el)
+    const r = anchor.getBoundingClientRect()
+    let x = align === 'right' ? r.right - el.offsetWidth : r.left
+    let y = r.bottom + 4
+    x = Math.max(4, Math.min(x, window.innerWidth - el.offsetWidth - 4))
+    if (y + el.offsetHeight > window.innerHeight - 4) y = Math.max(4, r.top - el.offsetHeight - 4)
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+    const outside = ev => { if (!el.contains(ev.target) && !anchor.contains(ev.target)) closePopup() }
+    const key = ev => {
+      if (ev.key !== 'Escape') return
+      ev.stopPropagation()
+      closePopup()
+    }
+    setTimeout(() => {
+      document.addEventListener('mousedown', outside, true)
+      document.addEventListener('keydown', key, true)
+    })
+    currentPopup = { el, outside, key }
+    const first = el.querySelector('input, button')
+    if (first) first.focus()
+    return el
+  }
+
+  /** Menu : liste de { label, onClick, hint?, danger?, disabled? }, '-' (séparateur) ou { title }. */
+  function menu (anchor, items, opts) {
+    return popup(anchor, h('div', { class: 'ctx-menu' }, items.map(it => {
+      if (it === '-') return h('div', { class: 'menu-sep' })
+      if (it.title) return h('div', { class: 'menu-title' }, it.title)
+      return h('button', {
+        class: it.danger ? 'danger' : null,
+        disabled: it.disabled ? 'disabled' : null,
+        onclick: () => {
+          closePopup()
+          it.onClick()
+        }
+      }, h('span', null, it.label), it.hint ? h('span', { class: 'menu-hint' }, it.hint) : null)
+    })), opts)
+  }
+
+  // --- Visages des bots : tête pixel 8×8 déterminée par le nom ------------------
+  const faceCache = new Map()
+  const FACE_BASES = ['#8b8b8b', '#6d8f3a', '#3c44aa', '#a12722', '#835432', '#169c9c', '#8932b8', '#c47a2c', '#474f52', '#5e7c16', '#b02e26', '#3ab3da']
+  const FACE_EYES = ['#55ffff', '#ffff55', '#ff5555', '#55ff55', '#ffffff', '#ff55ff', '#ffaa00']
+
+  function hash (text) {
+    let x = 2166136261
+    for (const c of String(text)) {
+      x ^= c.codePointAt(0)
+      x = Math.imul(x, 16777619)
+    }
+    return x >>> 0
+  }
+
+  function shade (hex, f) {
+    const n = parseInt(hex.slice(1), 16)
+    const c = v => Math.max(0, Math.min(255, Math.round(v * f)))
+    return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`
+  }
+
+  function face (name) {
+    if (faceCache.has(name)) return faceCache.get(name)
+    let seed = hash(name) || 1
+    const rnd = () => {
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      return (seed >>> 0) / 4294967296
+    }
+    const base = FACE_BASES[hash(`${name}#b`) % FACE_BASES.length]
+    const eye = FACE_EYES[hash(`${name}#e`) % FACE_EYES.length]
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 8
+    const g = canvas.getContext('2d')
+    const px = (x, y, color) => {
+      g.fillStyle = color
+      g.fillRect(x, y, 1, 1)
+      g.fillRect(7 - x, y, 1, 1)
+    }
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 4; x++) {
+        const v = rnd()
+        px(x, y, v < 0.2 ? shade(base, 0.72) : v < 0.32 ? shade(base, 1.2) : base)
+      }
+    }
+    for (let x = 0; x < 4; x++) px(x, 0, shade(base, 0.6))
+    px(1, 3, eye)
+    px(2, 3, eye)
+    px(2, 4, shade(base, 0.45))
+    const mouth = hash(`${name}#m`) % 3
+    for (let x = mouth === 0 ? 2 : 3; x < 4; x++) px(x, 6, shade(base, 0.4))
+    if (mouth === 2) px(2, 5, shade(base, 0.4))
+    const url = canvas.toDataURL()
+    faceCache.set(name, url)
+    return url
+  }
+
+  let grassCache = null
+
+  /** Icône de serveur par défaut : un bloc d'herbe en pixel art (comme pack.png absent). */
+  function grassIcon () {
+    if (grassCache) return grassCache
+    let seed = 1234567
+    const rnd = () => {
+      seed ^= seed << 13
+      seed ^= seed >>> 17
+      seed ^= seed << 5
+      return (seed >>> 0) / 4294967296
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 16
+    const g = canvas.getContext('2d')
+    const greens = ['#5d9c32', '#6db33c', '#4f8a2a', '#79c043']
+    const dirts = ['#8b5a2b', '#79502a', '#9a6a3a', '#6b4423']
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++) {
+        const drip = y === 3 || y === 4 ? rnd() < (y === 3 ? 0.55 : 0.25) : false
+        const palette = y < 3 || drip ? greens : dirts
+        g.fillStyle = palette[Math.floor(rnd() * palette.length)]
+        g.fillRect(x, y, 1, 1)
+      }
+    }
+    grassCache = canvas.toDataURL()
+    return grassCache
+  }
+
+  function faceImg (name, size = 16) {
+    return h('img', { class: 'face', src: face(name), width: size, height: size, alt: '' })
+  }
+
+  return { h, add, clear, api, popup, menu, closePopup, face, faceImg, grassIcon, toast, fmtTime, fmtDuration, store, download, paramInput, optionList, get token () { return token } }
 })()
