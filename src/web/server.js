@@ -113,6 +113,18 @@ function startWebServer ({ manager, logger, config }) {
   app.get('/api/bots/:id/chat', route(req => manager.require(req.params.id).chatHistory.slice(-Number(req.query.limit || 150))))
   app.get('/api/bots/:id/inventory', route(req => manager.require(req.params.id).getInventory()))
   app.get('/api/bots/:id/window', route(req => manager.require(req.params.id).getWindow()))
+  // --- Traces des déplacements ----------------------------------------------------
+  app.get('/api/trails', route(req => ({
+    keepMinutes: manager.trails.keepMinutes,
+    trails: manager.trails.snapshot({
+      minutes: Number(req.query.minutes) || null,
+      ids: req.query.bots ? String(req.query.bots).split(',') : null
+    })
+  })))
+  app.delete('/api/trails', route(req => {
+    manager.clearTrails(req.query.bots ? String(req.query.bots).split(',') : null)
+  }))
+
   app.get('/api/bots/:id/view', route(req => snapshot(manager.require(req.params.id), {
     radius: req.query.radius,
     height: req.query.height,
@@ -210,6 +222,8 @@ function startWebServer ({ manager, logger, config }) {
   const onTrace = t => push('traces', t, 300)
   const onReport = r => io.emit('report', r)
   const onRuntime = r => io.emit('runtime', r)
+  const onTrails = changes => { if (io.engine.clientsCount) io.emit('trails', changes) }
+  const onTrailsCleared = ids => io.emit('trailsCleared', ids)
   const onBots = () => { dirty = true }
   let dirty = true
   logger.on('line', onLine)
@@ -218,6 +232,8 @@ function startWebServer ({ manager, logger, config }) {
   manager.reports.on('update', onReport)
   manager.reports.on('cleared', () => io.emit('reportsCleared'))
   manager.on('runtime', onRuntime)
+  manager.on('trails', onTrails)
+  manager.on('trailsCleared', onTrailsCleared)
   manager.on('botAdded', onBots)
   manager.on('botRemoved', onBots)
   manager.on('botChanged', onBots)
@@ -271,6 +287,8 @@ function startWebServer ({ manager, logger, config }) {
           manager.removeListener('chat', onChat)
           manager.removeListener('trace', onTrace)
           manager.removeListener('runtime', onRuntime)
+          manager.removeListener('trails', onTrails)
+          manager.removeListener('trailsCleared', onTrailsCleared)
           io.close()
           server.close()
         }

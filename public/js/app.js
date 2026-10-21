@@ -36,6 +36,7 @@ const state = {
   feed: [],
   mapDim: null,
   trails: new Map(),
+  trailKeep: 60, // minutes conservées par le serveur
   trailMinutes: U.store('trail-minutes') ?? 5,
   monitor: false,
   chatHistory: U.store('chat-history') || []
@@ -487,9 +488,6 @@ function renderBots () {
 
 // --- Traces des déplacements ------------------------------------------------------------
 
-const TRAIL_MAX_POINTS = 2000
-const TRAIL_JUMP = 32 // au-delà, c'est une téléportation : on coupe la trace
-
 /** Couleur propre à un bot (traces, cadre sur la carte, mur des bots). */
 // Couleurs des traces : une couleur bien distincte par bot, attribuée dans l'ordre d'arrivée.
 const TRAIL_COLORS = ['#ffd84a', '#4fd6ff', '#ff7ad9', '#b388ff', '#ff9f43', '#9be564', '#f2f2f2', '#5ec4b6', '#e0b07a', '#8fa8ff', '#ff8a80', '#c6ff6b']
@@ -502,33 +500,56 @@ function botColor (name) {
   return `hsl(${Math.round(i * 137.508) % 360}, 75%, 64%)`
 }
 
-function recordTrails () {
-  const now = Date.now()
-  const keep = Math.max(1, state.trailMinutes || 15) * 60000
-  for (const b of state.bots.values()) {
-    if (b.status !== 'online' || !b.position) continue
-    const dim = b.dimension || 'overworld'
-    let trail = state.trails.get(b.id)
-    if (!trail || trail.dim !== dim) {
-      trail = { dim, points: [], dist: 0 }
-      state.trails.set(b.id, trail)
-    }
-    const pts = trail.points
-    const last = pts[pts.length - 1]
-    const { x, z } = b.position
-    if (!last) {
-      pts.push([x, z, now])
-    } else {
-      const d = Math.hypot(x - last[0], z - last[1])
-      if (d >= 0.35) {
-        if (d > TRAIL_JUMP) pts.push(null)
-        else trail.dist += d
-        pts.push([x, z, now])
-      }
-    }
-    while (pts.length && (pts.length > TRAIL_MAX_POINTS || (pts[0] && now - pts[0][2] > keep) || pts[0] === null)) pts.shift()
+// Les traces sont relevées par le serveur (un point par seconde) : l'historique est
+// chargé à l'ouverture de la page puis complété en direct par l'évènement « trails ».
+let trailBuffer = null // nouveaux points reçus pendant le chargement de l'historique
+
+async function loadTrails () {
+  trailBuffer = []
+  try {
+    const res = await U.api('GET', '/api/trails')
+    state.trailKeep = res.keepMinutes || state.trailKeep
+    state.trails = new Map(Object.entries(res.trails))
+  } catch (err) {
+    // pas d'historique : les nouveaux points s'afficheront quand même
   }
-  for (const id of state.trails.keys()) if (!state.bots.has(id)) state.trails.delete(id)
+  const pending = trailBuffer
+  trailBuffer = null
+  applyTrails(pending)
+  renderMap()
+}
+
+function onTrails (changes) {
+  if (trailBuffer) trailBuffer.push(...changes)
+  else applyTrails(changes)
+}
+
+function applyTrails (changes) {
+  for (const c of changes) {
+    let trail = state.trails.get(c.id)
+    if (c.reset || !trail || trail.dim !== c.dim) {
+      trail = { dim: c.dim, dist: 0, points: [] }
+      state.trails.set(c.id, trail)
+    }
+    // ignore les points déjà présents dans l'historique chargé
+    const last = trail.points[trail.points.length - 1]
+    const fresh = last ? c.points.filter(p => p === null || p[2] > last[2]) : c.points
+    if (fresh.some(p => p !== null)) trail.points.push(...fresh)
+    trail.dist = c.dist
+  }
+}
+
+function pruneTrails () {
+  const since = Date.now() - state.trailKeep * 60000
+  for (const [id, t] of state.trails) {
+    if (!state.bots.has(id)) {
+      state.trails.delete(id)
+      continue
+    }
+    let cut = 0
+    while (cut < t.points.length && (t.points[cut] === null || t.points[cut][2] < since)) cut++
+    if (cut) t.points.splice(0, cut)
+  }
 }
 
 function trailOf (id, dim) {
@@ -575,18 +596,22 @@ function drawMap (box, legend, bots, { big = false } = {}) {
   const W = box.clientWidth
   const H = box.clientHeight
   const trails = new Map(bots.map(b => [b.id, trailOf(b.id, state.mapDim)]))
-  const xs = bots.map(b => b.position.x)
-  const zs = bots.map(b => b.position.z)
-  for (const pts of trails.values()) {
-    for (const p of pts) {
-      if (!p) continue
-      xs.push(p[0])
-      zs.push(p[1])
-    }
+  // Emprise : les bots et leurs traces (boucle simple, les traces peuvent compter des milliers de points).
+  let minX = Infinity
+  let maxX = -Infinity
+  let minZ = Infinity
+  let maxZ = -Infinity
+  const extend = (x, z) => {
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
   }
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2
-  const cz = (Math.min(...zs) + Math.max(...zs)) / 2
-  const span = Math.max(48, (Math.max(...xs) - Math.min(...xs)) * 1.25, (Math.max(...zs) - Math.min(...zs)) * 1.25)
+  for (const b of bots) extend(b.position.x, b.position.z)
+  for (const pts of trails.values()) for (const p of pts) if (p) extend(p[0], p[1])
+  const cx = (minX + maxX) / 2
+  const cz = (minZ + maxZ) / 2
+  const span = Math.max(48, (maxX - minX) * 1.25, (maxZ - minZ) * 1.25)
   const scale = Math.min(W, H) / span
   const px = x => (x - cx) * scale + W / 2
   const pz = z => (z - cz) * scale + H / 2
@@ -601,40 +626,59 @@ function drawMap (box, legend, bots, { big = false } = {}) {
   north.textContent = 'N'
   svg.appendChild(north)
 
-  // Traces : découpées en tronçons de plus en plus opaques avec le temps.
+  // Traces : dessinées sur un canevas sous la carte (des centaines de milliers de points
+  // pour un test de charge d'une heure), en 8 tranches d'âge de plus en plus opaques.
   const now = Date.now()
   const windowMs = (state.trailMinutes || 1) * 60000
+  const BUCKETS = 8
+  const ratio = window.devicePixelRatio || 1
+  const canvas = h('canvas', { class: 'trails', width: Math.round(W * ratio), height: Math.round(H * ratio) })
+  const ctx = canvas.getContext('2d')
+  ctx.scale(ratio, ratio)
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
   for (const b of bots) {
     const pts = trails.get(b.id)
     if (pts.length < 2) continue
-    const color = botColor(b.id)
-    const open = state.openBot === b.id
-    let seg = []
-    const flush = () => {
-      if (seg.length < 2) return
-      const age = (now - seg[seg.length - 1][2]) / windowMs
-      svg.appendChild(svgEl('polyline', {
-        points: seg.map(p => `${px(p[0]).toFixed(1)},${pz(p[1]).toFixed(1)}`).join(' '),
-        class: `trail${open ? ' open' : ''}`,
-        stroke: color,
-        'stroke-opacity': Math.max(0.12, 0.9 - age * 0.8).toFixed(2)
-      }))
-    }
+    ctx.strokeStyle = botColor(b.id)
+    ctx.lineWidth = state.openBot === b.id ? 3.5 : 2
+    let bucket = -1
+    let prev = null // dernier point tracé, en pixels
+    let needMove = true
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]
       if (!p) {
-        flush()
-        seg = []
+        prev = null
         continue
       }
-      seg.push(p)
-      if (seg.length >= 12 && i < pts.length - 1) {
-        flush()
-        seg = [p]
+      const x = px(p[0])
+      const y = pz(p[1])
+      if (!prev) {
+        prev = [x, y]
+        needMove = true
+        continue
       }
+      // à moins d'un pixel du point précédent, on ne trace rien (sauf en bout de trace)
+      const isLast = i === pts.length - 1 || !pts[i + 1]
+      if (!isLast && Math.abs(x - prev[0]) < 1 && Math.abs(y - prev[1]) < 1) continue
+      const k = Math.min(BUCKETS - 1, Math.max(0, Math.floor((1 - (now - p[2]) / windowMs) * BUCKETS)))
+      if (k !== bucket) {
+        if (bucket >= 0) ctx.stroke()
+        bucket = k
+        ctx.globalAlpha = 0.12 + 0.78 * (k + 1) / BUCKETS
+        ctx.beginPath()
+        needMove = true
+      }
+      if (needMove) {
+        ctx.moveTo(prev[0], prev[1])
+        needMove = false
+      }
+      ctx.lineTo(x, y)
+      prev = [x, y]
     }
-    flush()
+    if (bucket >= 0) ctx.stroke()
   }
+  box.appendChild(canvas)
 
   const taken = []
   const freeLabelY = (x, y, w) => {
@@ -1724,8 +1768,7 @@ async function init () {
     renderMap()
   })
   $('trail-clear').addEventListener('click', () => {
-    state.trails.clear()
-    renderMap()
+    U.api('DELETE', '/api/trails').catch(err => U.toast(err.message, 'error'))
   })
   $('map-dim').addEventListener('change', ev => {
     state.mapDim = ev.target.value
@@ -1765,6 +1808,13 @@ async function init () {
     state.socketOk = true
     conn.className = 'led conn ok'
     conn.title = 'Connecté au serveur'
+    loadTrails()
+  })
+  socket.on('trails', onTrails)
+  socket.on('trailsCleared', ids => {
+    if (ids) for (const id of ids) state.trails.delete(id)
+    else state.trails.clear()
+    renderMap()
   })
   socket.on('disconnect', () => {
     state.socketOk = false
@@ -1775,7 +1825,7 @@ async function init () {
   socket.on('bots', list => {
     state.bots = new Map(list.map(b => [b.id, b]))
     sampleHistory()
-    recordTrails()
+    pruneTrails()
     renderBots()
     renderKpis()
     renderMap()

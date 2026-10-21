@@ -1,8 +1,10 @@
 'use strict'
 
+const path = require('path')
 const { EventEmitter } = require('events')
 const { BotInstance } = require('./BotInstance')
 const { ReportStore } = require('./ReportStore')
+const { TrailStore } = require('./TrailStore')
 const { GraphStore } = require('../graph/GraphStore')
 const { GraphRuntime } = require('../graph/GraphRuntime')
 const modes = require('../modes')
@@ -26,6 +28,18 @@ class BotManager extends EventEmitter {
     this.shared = {}
     this.reports = new ReportStore({ dir: config.paths.reports })
     this.graphs = new GraphStore(config.paths.graphs)
+
+    // Traces des déplacements : un point par seconde et par bot, enregistrées sur disque.
+    const trails = config.trails || {}
+    this.trails = new TrailStore({
+      keepMinutes: trails.keepMinutes,
+      file: trails.persist !== false && config.paths.data ? path.join(config.paths.data, 'trails.json') : null
+    })
+    this._trailTimer = setInterval(() => this.sampleTrails(), 1000)
+    this._trailSaveTimer = setInterval(() => this.saveTrails(), 30000)
+    this._trailTimer.unref()
+    this._trailSaveTimer.unref()
+    this._trailPrunedAt = 0
   }
 
   /** Options complètes d'un bot : valeurs par défaut de la config + options fournies. */
@@ -122,7 +136,9 @@ class BotManager extends EventEmitter {
     for (const rt of [...instance.runtimes]) rt.stop('Bot supprimé')
     instance.disconnect('Bot supprimé')
     this.bots.delete(id)
+    this.trails.remove(id)
     this.emit('botRemoved', id)
+    this.emit('trailsCleared', [id])
     this.log.info(`Bot supprimé : ${id}`)
     return true
   }
@@ -227,7 +243,43 @@ class BotManager extends EventEmitter {
     return bots.length
   }
 
+  /** Relève la position de chaque bot en jeu et diffuse les nouveaux points. */
+  sampleTrails (now = Date.now()) {
+    const changes = []
+    for (const b of this.bots.values()) {
+      const bot = b.bot
+      if (b.status !== 'online' || !bot || !bot.entity || !bot.entity.position || !bot.game) {
+        this.trails.pause(b.id)
+        continue
+      }
+      const { x, z } = bot.entity.position
+      const change = this.trails.record(b.id, x, z, String(bot.game.dimension).replace('minecraft:', ''), now)
+      if (change) changes.push(change)
+    }
+    if (now - this._trailPrunedAt >= 10000) {
+      this._trailPrunedAt = now
+      this.trails.prune(now)
+    }
+    if (changes.length) this.emit('trails', changes)
+  }
+
+  clearTrails (ids = null) {
+    this.trails.clear(ids)
+    this.emit('trailsCleared', ids)
+  }
+
+  saveTrails () {
+    try {
+      this.trails.save()
+    } catch (err) {
+      this.log.warn(`Enregistrement des traces impossible : ${err.message}`)
+    }
+  }
+
   shutdown () {
+    clearInterval(this._trailTimer)
+    clearInterval(this._trailSaveTimer)
+    this.saveTrails()
     for (const rt of this.runtimes.values()) if (rt.active) rt.stop('Arrêt du programme')
     for (const b of this.list()) {
       clearTimeout(b._joinTimer)

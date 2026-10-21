@@ -444,15 +444,14 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Carte vue de dessus */
 .map-panel, .feed-panel { padding: 10px 12px 12px; }
 .map { height: 300px; position: relative; overflow: hidden; background: #0b0f0b; }
-.map svg { display: block; }
+.map svg { display: block; position: relative; }
 .map line.grid { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1; shape-rendering: crispEdges; }
 .map line.axis { stroke: rgba(85, 255, 255, 0.35); stroke-width: 1; shape-rendering: crispEdges; }
 .map .north { font: 12px var(--font-pixel); fill: #ff5555; text-anchor: middle; }
 .map-title { gap: 4px; }
 .map-title select { max-width: 120px; }
 .map-title #trail-minutes { max-width: none; }
-.trail { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.trail.open { stroke-width: 3.5; }
+.map canvas.trails { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 .map-bot { cursor: pointer; }
 .map-bot .frame { fill: #000; stroke-width: 2; shape-rendering: crispEdges; }
 .map-bot.selected .frame { stroke: #ffff55; }

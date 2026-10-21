@@ -37,10 +37,15 @@
     "console": "info",
     "file": "logs/arthur-bot.log"
   },
+  "trails": {
+    "keepMinutes": 60,
+    "persist": true
+  },
   "paths": {
     "graphs": "graphs",
     "reports": "reports",
-    "profiles": ".auth"
+    "profiles": ".auth",
+    "data": "data"
   },
   "autostart": []
 }

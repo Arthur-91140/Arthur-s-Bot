@@ -13,6 +13,7 @@ function createTestManager () {
   const config = loadConfig(path.join(dir, 'absent.json'))
   config.paths.graphs = path.join(dir, 'graphs')
   config.paths.reports = null
+  config.paths.data = null
   const logger = new Logger({ console: 'none', file: null })
   const manager = new BotManager({ config, logger })
   return { manager, logger, dir }

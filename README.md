@@ -59,7 +59,7 @@ Le design reprend le langage visuel des menus de Minecraft : coins carrés, reli
 
 | Onglet | Contenu |
 | --- | --- |
-| **Bots** | Le serveur affiché comme dans la liste multijoueur (icône, MOTD, joueurs, barres de ping, rafraîchi toutes les 20 s). Des indicateurs : bots en jeu, **TPS** et ping moyens avec leur historique, graphes en cours, tests réussis/échoués. Un tableau des bots triable et filtrable, avec un visage pixel propre à chaque bot et des jauges de vie et de faim en 10 cases. Des actions groupées (mode, graphe et signal dans des menus). Une **carte vue de dessus** des positions avec le **tracé des déplacements** (traces de 1, 5 ou 15 min, une couleur par bot, distance parcourue au survol), un **fil d'évènements** (connexions, morts, expulsions, erreurs) et une barre de chat comme en jeu. |
+| **Bots** | Le serveur affiché comme dans la liste multijoueur (icône, MOTD, joueurs, barres de ping, rafraîchi toutes les 20 s). Des indicateurs : bots en jeu, **TPS** et ping moyens avec leur historique, graphes en cours, tests réussis/échoués. Un tableau des bots triable et filtrable, avec un visage pixel propre à chaque bot et des jauges de vie et de faim en 10 cases. Des actions groupées (mode, graphe et signal dans des menus). Une **carte vue de dessus** des positions avec le **tracé des déplacements** (traces de 1 min à 1 h, une couleur par bot, distance parcourue au survol ; relevées par le serveur, elles ne se perdent ni en rechargeant la page, ni en ouvrant une autre fenêtre, ni au redémarrage), un **fil d'évènements** (connexions, morts, expulsions, erreurs) et une barre de chat comme en jeu. |
 | **Fiche d'un bot** | **HUD du jeu** (cœurs, faim, barre d'expérience, barre d'objets cliquable), console de chat en direct (historique ↑), **vue 3D** de ce que voit le bot (blocs et entités autour de lui, « yeux du bot » ou orbite libre, rayon de 12 à 28 blocs, plein écran), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
 | **Écran de contrôle** | Tableau de bord plein écran pour un second écran pendant les tests de charge (bouton en haut à droite ou **M**) : gros indicateurs (bots en jeu, TPS, ping, connexions, expulsions, morts et messages par minute, graphes, tests), bandeau d'alertes (TPS bas, bots hors ligne, expulsions récentes, serveur injoignable), horloge, grande carte avec traces, mur de tous les bots (les problèmes d'abord, tuiles compactes au-delà de 60 bots), fil d'évènements et courbes sur 10 minutes. « Nouvelle fenêtre » l'ouvre seul dans une fenêtre à glisser sur l'autre écran (adresse `/?monitor`), puis « Plein écran ». |
 | **Éditeur de comportements** | Programmation visuelle (voir plus bas). |
@@ -173,6 +173,7 @@ Copiez `config/config.example.json` en `config/config.json` (ignoré par git) ; 
 - `bot` : authentification, reconnexion (délai, nombre max), plugins (réapparition, nourriture, armure, pack de ressources, AuthMe + mot de passe).
 - `swarm` : motif de nom et délai entre connexions par défaut.
 - `web` : adresse d'écoute, port, **jeton d'accès** (obligatoire si vous exposez l'interface sur le réseau ; à passer en `?token=` dans l'URL ou en en-tête `Authorization: Bearer`).
+- `trails` : traces des déplacements, `keepMinutes` (durée conservée, 60 par défaut) et `persist` (enregistrement dans `data/trails.json` toutes les 30 s et à l'arrêt, rechargé au démarrage).
 - `autostart` : bots/essaims créés au démarrage, avec mode et/ou graphe.
 
 Variables d'environnement : `MC_HOST`, `MC_PORT`, `MC_VERSION`, `WEB_HOST`, `WEB_PORT`, `WEB_TOKEN`, `ARTHUR_CONFIG`.
@@ -191,6 +192,7 @@ Toutes les actions de l'interface passent par l'API (utilisable depuis vos scrip
 | GET/DELETE | `/api/bots/:id` | État complet / suppression. |
 | POST | `/api/bots/:id/:action` | `connect, disconnect, reconnect, chat, mode, control, goto, gotoPlayer, stop, look, attack, dropAll, respawn, useItem, swing, equip, hotbar, armor, click, closeWindow, plugins, trigger`. |
 | GET | `/api/bots/:id/inventory`, `/window`, `/chat` | Inventaire, menu ouvert, chat. |
+| GET/DELETE | `/api/trails?minutes=&bots=` | Traces des déplacements (un point `[x, z, t]` par seconde au plus, `null` = coupure) / effacement pour toutes les fenêtres. |
 | GET | `/api/bots/:id/view?radius=&height=&blocks=` | Instantané pour la vue 3D : position, regard, entités proches et boîte de blocs autour du bot (palette + données base64). |
 | POST | `/api/bulk` | `{ targets, action, ... }` sur plusieurs bots. |
 | GET/POST/PUT/DELETE | `/api/graphs[/:id]` | Graphes enregistrés. |
@@ -200,7 +202,7 @@ Toutes les actions de l'interface passent par l'API (utilisable depuis vos scrip
 | GET/DELETE | `/api/reports[/:id]` | Rapports. |
 | GET | `/api/logs?source=&level=&limit=` | Journal. |
 
-Le canal temps réel (Socket.IO) diffuse : `bots`, `logs`, `chats`, `traces`, `report`, `runtime`, `graphs`.
+Le canal temps réel (Socket.IO) diffuse : `bots`, `logs`, `chats`, `traces` (exécution des graphes), `trails` et `trailsCleared` (traces des déplacements), `report`, `runtime`, `graphs`.
 
 ## Compatibilité et limites
 
@@ -218,13 +220,14 @@ bin/arthur-bot.js        point d'entrée CLI (start, run, ping, versions, modes,
 src/app.js               assemblage : configuration, journal, gestionnaire, web, console
 src/core/                BotManager (bots, essaims, graphes, signaux), BotInstance (connexion,
                          reconnexion, état, actions), plugins utilitaires, navigation, rapports, ping,
-                         view (instantané du monde pour la vue 3D)
+                         view (instantané du monde pour la vue 3D), TrailStore (traces des déplacements)
 src/modes/               modes prédéfinis (basic, combat, world, testing)
 src/graph/               moteur de graphes : registry, GraphRuntime, expression, nodes/*
 src/web/server.js        API REST + Socket.IO + fichiers statiques
 src/cli/                 console interactive et mode CI (JUnit)
 public/                  interface web (sans framework ni étape de build)
 graphs/                  graphes enregistrés (JSON)
+data/                    traces des déplacements enregistrées (ignoré par git)
 test/                    tests (npm test)
 ```
 
@@ -233,7 +236,7 @@ test/                    tests (npm test)
 **Ajouter un nœud** : ajoutez une définition `{ type, category, label, description, outputs, params, run(api) }` (ou `subscribe(api, fire)` pour un évènement) dans `src/graph/nodes/*.js`. `api.param('clé')` résout les expressions, `api.bot`, `api.locals`, `api.setVar()`, `api.sleep()`, `api.exec('sortie')`, `api.report` sont disponibles. Le nœud apparaît automatiquement dans la palette.
 
 ```bash
-npm test     # tests unitaires (expressions, moteur de graphes, registres, exemples, vue 3D)
+npm test     # tests unitaires (expressions, moteur de graphes, registres, exemples, vue 3D, traces)
 ```
 
 ## Licence
