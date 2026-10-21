@@ -70,8 +70,8 @@ async function ping () {
         h('div', { class: 'muted small' },
           `${r.version} • protocole ${r.protocol} • ${r.players ? `${r.players.online}/${r.players.max} joueurs` : '?'} • ${r.latency} ms`),
         r.supported
-          ? h('div', { class: 'ok small' }, `✔ Version supportée par les bots (${r.botVersion})`)
-          : h('div', { class: 'warn small' }, '⚠ Protocole non reconnu : essayez une version proche ou ViaVersion côté serveur'),
+          ? h('div', { class: 'ok small' }, `Compatible — les bots utiliseront la ${r.botVersion}`)
+          : h('div', { class: 'warn small' }, 'Protocole non reconnu : essayez une version proche ou ViaVersion côté serveur'),
         r.modded ? h('div', { class: 'warn small' }, 'Serveur moddé (Forge/Fabric) : les mods côté client ne sont pas émulés.') : null)))
   } catch (err) {
     U.clear(out).appendChild(h('div', { class: 'alert error' }, err.message))
@@ -170,69 +170,87 @@ async function loadGraphs () {
   }
 }
 
-// --- Cartes des bots ---------------------------------------------------------------
+// --- Liste des bots -----------------------------------------------------------------
 
-function bar (value, max, cls) {
-  const pct = value === null || value === undefined ? 0 : Math.max(0, Math.min(100, (value / max) * 100))
-  return h('div', { class: `bar ${cls}` }, h('div', { class: 'fill', style: { width: `${pct}%` } }), h('span', null, value ?? '-'))
+/** Jauge en 10 cases (comme les cœurs et la faim du jeu). */
+function meter (value, max, kind, withLabel = false) {
+  const cells = []
+  const v = value === null || value === undefined ? 0 : Math.max(0, Math.min(max, value))
+  const per = max / 10
+  for (let i = 0; i < 10; i++) {
+    const fill = v - i * per
+    cells.push(h('i', { class: fill >= per ? 'on' : fill >= per / 2 ? 'half' : null }))
+  }
+  return h('span', { class: 'meter-wrap', title: `${kind === 'health' ? 'Vie' : 'Faim'} : ${value ?? '-'}/${max}` },
+    h('span', { class: `meter ${kind}` }, cells),
+    withLabel ? h('span', { class: 'meter-label' }, value ?? '-') : null)
 }
 
-function botCard (b) {
+function stateTag (status, labels = STATUS_LABEL) {
+  return h('span', { class: `state ${status}` }, labels[status] || status)
+}
+
+function botRow (b) {
   const pos = b.position ? `${b.position.x} ${b.position.y} ${b.position.z}` : '—'
   const running = b.runtimes.filter(r => r.status === 'running').length
-  return h('div', {
-    class: `bot-card ${b.status}${state.selected.has(b.id) ? ' selected' : ''}${state.openBot === b.id ? ' open' : ''}`,
+  const reason = b.status === 'offline' && ((b.lastKick && b.lastKick.reason) || b.lastError)
+  const select = h('input', {
+    type: 'checkbox',
+    checked: state.selected.has(b.id),
+    title: 'Sélectionner',
+    onchange: ev => {
+      if (ev.target.checked) state.selected.add(b.id)
+      else state.selected.delete(b.id)
+      renderBots()
+    }
+  })
+  return h('tr', {
+    class: [state.selected.has(b.id) ? 'selected' : '', state.openBot === b.id ? 'open' : ''].join(' ').trim() || null,
     dataset: { id: b.id },
     onclick: ev => {
       if (ev.target.closest('button, input')) return
       openDrawer(b.id)
     }
   },
-  h('div', { class: 'card-head' },
-    h('input', {
-      type: 'checkbox',
-      checked: state.selected.has(b.id),
-      title: 'Sélectionner',
-      onchange: ev => {
-        if (ev.target.checked) state.selected.add(b.id)
-        else state.selected.delete(b.id)
-        renderBots()
-      }
-    }),
-    h('span', { class: 'bot-name' }, b.id),
-    h('span', { class: `pill ${b.status}` }, STATUS_LABEL[b.status] || b.status)),
-  h('div', { class: 'bars' }, bar(b.health, 20, 'health'), bar(b.food, 20, 'food')),
-  h('div', { class: 'card-line muted small' }, `📍 ${pos}`, b.dimension ? ` • ${b.dimension}` : ''),
-  h('div', { class: 'card-line muted small' },
-    `${b.version || 'auto'}`, b.ping !== null ? ` • ${b.ping} ms` : '', b.tps !== null ? ` • TPS ${b.tps}` : '', b.gameMode ? ` • ${b.gameMode}` : ''),
-  h('div', { class: 'card-line small' }, h('span', { class: 'mode-tag' }, b.modeLabel), running ? h('span', { class: 'graph-tag' }, `⚙ ${running} graphe(s)`) : null),
-  b.msaCode ? h('div', { class: 'alert warn small' }, `Microsoft : ${b.msaCode.uri} code ${b.msaCode.code}`) : null,
-  b.status === 'offline' && (b.lastKick || b.lastError)
-    ? h('div', { class: 'card-line error small', title: (b.lastKick && b.lastKick.reason) || b.lastError }, `⚠ ${((b.lastKick && b.lastKick.reason) || b.lastError).slice(0, 90)}`)
-    : null,
-  h('div', { class: 'card-actions' },
+  h('td', null, select),
+  h('td', null, h('span', { class: 'name-cell' }, h('span', { class: `led ${b.status}` }), h('span', { class: 'name' }, b.id))),
+  h('td', null, stateTag(b.status),
+    reason ? h('span', { class: 'reason', title: reason }, reason) : null,
+    b.msaCode ? h('span', { class: 'reason warn', title: b.msaCode.uri }, `Microsoft : code ${b.msaCode.code}`) : null),
+  h('td', null, meter(b.health, 20, 'health')),
+  h('td', null, meter(b.food, 20, 'food')),
+  h('td', { class: 'num-cell', title: b.dimension || '' }, pos),
+  h('td', { class: 'num-cell' }, b.ping !== null ? `${b.ping} ms` : '—'),
+  h('td', { class: 'num-cell' }, b.tps ?? '—'),
+  h('td', null, b.modeLabel, running ? h('span', { class: 'chip', title: 'Graphes en cours' }, `+${running} graphe${running > 1 ? 's' : ''}`) : null),
+  h('td', null, h('span', { class: 'actions' },
     b.status === 'offline'
-      ? h('button', { class: 'btn small success', onclick: () => botAction(b.id, 'connect') }, 'Connecter')
-      : h('button', { class: 'btn small', onclick: () => botAction(b.id, 'disconnect') }, 'Déconnecter'),
-    h('button', { class: 'btn small', onclick: () => openDrawer(b.id) }, 'Détails'),
-    h('button', { class: 'btn small danger-ghost', title: 'Supprimer', onclick: () => removeBot(b.id) }, '✕')))
+      ? h('button', { class: 'btn small success', title: 'Connecter ce bot', onclick: () => botAction(b.id, 'connect') }, 'Rejoindre')
+      : h('button', { class: 'btn small', title: 'Déconnecter ce bot', onclick: () => botAction(b.id, 'disconnect') }, 'Quitter'),
+    h('button', { class: 'btn small', onclick: () => openDrawer(b.id) }, 'Fiche'),
+    h('button', { class: 'btn small danger-ghost', title: 'Supprimer ce bot', onclick: () => removeBot(b.id) }, '×'))))
 }
 
 function renderBots () {
-  const grid = document.getElementById('bots-grid')
+  const box = document.getElementById('bots-grid')
   const bots = [...state.bots.values()]
   for (const id of [...state.selected]) if (!state.bots.has(id)) state.selected.delete(id)
-  U.clear(grid)
+  U.clear(box)
   if (!bots.length) {
-    grid.appendChild(h('div', { class: 'empty' },
-      h('div', { class: 'big' }, '🤖'),
-      h('p', null, 'Aucun bot pour l\'instant.'),
-      h('p', { class: 'muted' }, 'Renseignez le serveur à gauche puis créez un bot ou un essaim (motif « Bot_{i} » + nombre).')))
+    box.appendChild(h('div', { class: 'empty' },
+      h('div', { class: 'empty-title' }, 'Aucun bot connecté'),
+      h('p', null, 'Renseignez le serveur à gauche, puis créez un bot (« Testeur ») ou un essaim (« Bot_{i} » et un nombre).')))
+  } else {
+    const head = ['', 'Bot', 'État', 'Vie', 'Faim', 'Position', 'Ping', 'TPS', 'Mode', '']
+    box.appendChild(h('table', { class: 'roster' },
+      h('thead', null, h('tr', null, head.map(t => h('th', null, t)))),
+      h('tbody', null, bots.map(botRow))))
   }
-  for (const b of bots) grid.appendChild(botCard(b))
   const online = bots.filter(b => b.status === 'online').length
-  document.getElementById('bots-count').textContent = `${bots.length} bot(s) • ${online} en jeu • ${state.selected.size} sélectionné(s)`
+  document.getElementById('bots-count').textContent = `${bots.length} bot${bots.length > 1 ? 's' : ''} · ${online} en jeu · ${state.selected.size} sélectionné${state.selected.size > 1 ? 's' : ''}`
   document.getElementById('select-all').checked = bots.length > 0 && state.selected.size === bots.length
+  const summary = document.getElementById('top-summary')
+  if (summary) summary.textContent = bots.length ? `${online}/${bots.length} en jeu` : ''
 }
 
 async function botAction (id, action, payload = {}) {
@@ -297,17 +315,17 @@ async function renderDrawer (full = false) {
   const head = drawer.querySelector('.drawer-head')
   U.add(U.clear(head),
     h('div', null,
-      h('div', { class: 'drawer-title' }, b.id, ' ', h('span', { class: `pill ${b.status}` }, STATUS_LABEL[b.status] || b.status)),
-      h('div', { class: 'muted small' },
-        `${b.host}:${b.port} • ${b.version || 'auto'} • auth ${b.auth === 'microsoft' ? 'Microsoft' : 'hors ligne'}`,
-        b.uptime ? ` • en ligne depuis ${U.fmtDuration(b.uptime)}` : '')),
-    h('button', { class: 'btn icon', onclick: closeDrawer, title: 'Fermer' }, '✕'))
+      h('div', { class: 'drawer-title' }, h('span', { class: `led ${b.status}` }), b.id, stateTag(b.status)),
+      h('div', { class: 'drawer-sub' },
+        `${b.host}:${b.port} · ${b.version || 'auto'} · auth ${b.auth === 'microsoft' ? 'Microsoft' : 'hors ligne'}`,
+        b.uptime ? ` · en ligne depuis ${U.fmtDuration(b.uptime)}` : '')),
+    h('button', { class: 'btn icon', onclick: closeDrawer, title: 'Fermer (Échap)' }, '×'))
 
   const stats = drawer.querySelector('.drawer-stats')
   const s = b.stats
   U.add(U.clear(stats),
-    h('div', { class: 'bars' }, bar(b.health, 20, 'health'), bar(b.food, 20, 'food')),
-    h('div', { class: 'stat-grid' },
+    h('div', { class: 'drawer-meters' }, meter(b.health, 20, 'health', true), meter(b.food, 20, 'food', true)),
+    h('div', { class: 'stat-grid inset' },
       stat('Position', b.position ? `${b.position.x} ${b.position.y} ${b.position.z}` : '—'),
       stat('Regard', b.yaw !== null ? `${b.yaw}° / ${b.pitch}°` : '—'),
       stat('Monde', b.dimension || '—'),
@@ -322,11 +340,11 @@ async function renderDrawer (full = false) {
       stat('Login', s.lastLoginMs ? `${s.lastLoginMs} ms` : '—'),
       stat('Messages', s.messages),
       stat('Téléportations', s.setbacks)),
-    b.lastKick ? h('div', { class: 'alert warn small' }, `Dernier kick : ${b.lastKick.reason}`) : null,
-    b.lastError ? h('div', { class: 'alert error small' }, `Dernière erreur : ${b.lastError}`) : null)
+    b.lastKick ? h('div', { class: 'alert warn' }, `Dernier kick : ${b.lastKick.reason}`) : null,
+    b.lastError ? h('div', { class: 'alert error' }, `Dernière erreur : ${b.lastError}`) : null)
 
   const tabs = drawer.querySelector('.drawer-tabs')
-  const names = { console: 'Console', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', graphs: 'Comportements', plugins: 'Plugins', logs: 'Journal' }
+  const names = { console: 'Console', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', graphs: 'Graphes', plugins: 'Plugins', logs: 'Journal' }
   U.clear(tabs)
   for (const [key, label] of Object.entries(names)) {
     tabs.appendChild(h('button', {
@@ -357,7 +375,7 @@ async function renderDrawer (full = false) {
 }
 
 function stat (label, value) {
-  return h('div', { class: 'stat' }, h('span', { class: 'muted tiny' }, label), h('span', null, String(value)))
+  return h('div', { class: 'stat' }, h('span', { class: 'k' }, label), h('span', { class: 'v', title: String(value) }, String(value)))
 }
 
 function chatLine (c) {
@@ -606,8 +624,13 @@ async function renderBotLogs (body, b) {
 
 // --- Journal -------------------------------------------------------------------------
 
+const LOG_LEVEL = { debug: 'DEBUG', info: 'INFO', warn: 'WARN', error: 'ERROR', chat: 'CHAT' }
+
+/** Une ligne au format de la console d'un serveur : [12:00:00 INFO] [source] message */
 function logLine (l) {
-  return h('div', { class: `log-line ${l.level}` }, h('span', { class: 'time' }, U.fmtTime(l.t)), h('span', { class: 'src' }, l.source), l.message)
+  return h('div', { class: `log-line ${l.level}` },
+    h('span', { class: 'lvl' }, `[${U.fmtTime(l.t)} ${LOG_LEVEL[l.level] || l.level.toUpperCase()}]`),
+    h('span', { class: 'src' }, `[${l.source}]`), l.message)
 }
 
 function logFilter (l) {
@@ -683,9 +706,9 @@ function renderReports () {
       class: `report-row${state.openReport === r.id ? ' open' : ''}`,
       onclick: () => openReport(r.id)
     },
-    h('span', { class: `pill ${r.status}` }, REPORT_STATUS[r.status] || r.status),
+    stateTag(r.status, REPORT_STATUS),
     h('div', { class: 'grow' }, h('div', null, r.name), h('div', { class: 'muted tiny' }, `${U.fmtTime(r.startedAt)} • ${U.fmtDuration(r.duration)} • ${r.source || r.kind}`)),
-    h('span', { class: 'small' }, h('span', { class: 'ok' }, `✔ ${r.passed}`), ' ', h('span', { class: 'error' }, `✘ ${r.failed}`), r.errors ? h('span', { class: 'warn' }, ` ! ${r.errors}`) : null)))
+    h('span', { class: 'counts' }, h('span', { class: 'ok' }, `${r.passed} ok`), ' · ', h('span', { class: r.failed ? 'error' : 'muted' }, `${r.failed} ko`), r.errors ? h('span', { class: 'warn' }, ` · ${r.errors} err`) : null)))
   }
   document.getElementById('report-summary').textContent = `${reports.length} rapport(s) • ${counts.passed} réussi(s) • ${counts.failed} échoué(s) • ${counts.running} en cours`
 }
@@ -731,8 +754,8 @@ async function openReport (id) {
         h('button', { class: 'btn small', onclick: () => U.download(`rapport-${r.id}.json`, JSON.stringify(r, null, 2)) }, 'Exporter'),
         h('button', { class: 'btn small', onclick: () => openReport(id) }, '↻'),
         h('button', { class: 'btn small danger-ghost', onclick: async () => { await U.api('DELETE', `/api/reports/${id}`); state.reports.delete(id); state.openReport = null; U.clear(box); renderReports() } }, 'Supprimer'))),
-    r.assertions.length ? h('h4', null, `Vérifications (${r.passed} ✔ / ${r.failed} ✘)`) : null,
-    r.assertions.length ? h('div', { class: 'table' }, r.assertions.map(a => h('div', { class: `trow ${a.ok ? 'ok' : 'error'}` }, h('span', null, a.ok ? '✔' : '✘'), h('span', { class: 'time' }, U.fmtTime(a.t)), h('span', { class: 'grow' }, a.message)))) : null,
+    r.assertions.length ? h('h4', null, `Vérifications — ${r.passed} ok, ${r.failed} ko`) : null,
+    r.assertions.length ? h('div', { class: 'table' }, r.assertions.map(a => h('div', { class: `trow ${a.ok ? 'ok' : 'error'}` }, h('span', null, a.ok ? 'OK' : 'KO'), h('span', { class: 'time' }, U.fmtTime(a.t)), h('span', { class: 'grow' }, a.message)))) : null,
     metrics.size ? h('h4', null, 'Mesures') : null,
     metrics.size ? h('div', { class: 'table' }, [...metrics].map(([name, vals]) => {
       const nums = vals.map(Number).filter(Number.isFinite)
@@ -762,7 +785,7 @@ function renderHelp () {
       h('li', null, 'Les nœuds « Tests » produisent des rapports (onglet Rapports), utilisables en CI avec « arthur-bot run ».')),
     h('h2', null, 'Expressions'),
     h('p', null, 'Les champs « expr » et les champs numériques acceptent des expressions. Dans un texte, insérez une valeur avec ', h('code', null, '{{ expression }}'), '.'),
-    h('pre', null, 'bot.health < 10 && hasItem(\'bread\')\n"Salut " + event.username\ncompteur % 10 == 0 ? "dizaine" : "autre"\nmatch(event.message, "(\\\\w+) a rejoint")[1]\ndistanceTo(0, 64, 0) > 20'),
+    h('pre', null, 'bot.health < 10 && hasItem(\'bread\')\n"Salut " + event.username\ncompteur % 10 == 0 ? "dizaine" : "autre"\nmatch(event.message, "(\\w+) a rejoint")[1]\ndistanceTo(0, 64, 0) > 20'),
     h('h3', null, 'Variables disponibles'),
     h('ul', null,
       h('li', null, h('code', null, 'bot.*'), ' : username, health, food, x, y, z, blockX/Y/Z, yaw, pitch, dimension, gameMode, ping, tps, players, playerNames, heldItem, isDay, timeOfDay, windowTitle, emptySlots, moving, online'),
@@ -784,6 +807,14 @@ function renderHelp () {
 
 async function init () {
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)))
+  // Touches 1 à 5 : changer d'onglet comme dans la barre d'inventaire ; Échap : fermer la fiche.
+  const tabKeys = ['dashboard', 'editor', 'reports', 'logs', 'help']
+  document.addEventListener('keydown', ev => {
+    const tag = (document.activeElement && document.activeElement.tagName) || ''
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || ev.ctrlKey || ev.metaKey || ev.altKey) return
+    if (/^[1-5]$/.test(ev.key)) showTab(tabKeys[Number(ev.key) - 1])
+    if (ev.key === 'Escape' && state.openBot && !document.querySelector('.popup')) closeDrawer()
+  })
   try {
     state.info = await U.api('GET', '/api/info')
   } catch (err) {
@@ -864,8 +895,8 @@ async function init () {
 
   const socket = io({ auth: { token: U.token } })
   const conn = document.getElementById('conn-status')
-  socket.on('connect', () => { conn.className = 'conn ok'; conn.title = 'Connecté au serveur' })
-  socket.on('disconnect', () => { conn.className = 'conn ko'; conn.title = 'Déconnecté du serveur' })
+  socket.on('connect', () => { conn.className = 'led conn ok'; conn.title = 'Connecté au serveur' })
+  socket.on('disconnect', () => { conn.className = 'led conn ko'; conn.title = 'Déconnecté du serveur' })
   socket.on('bots', list => {
     state.bots = new Map(list.map(b => [b.id, b]))
     renderBots()
@@ -891,7 +922,7 @@ async function init () {
       if (state.openReport === r.id) openReport(r.id)
     }
     if (prev && prev.status === 'running' && r.status !== 'running') {
-      U.toast(`Rapport « ${r.name} » : ${REPORT_STATUS[r.status] || r.status} (${r.passed} ✔ / ${r.failed} ✘)`, r.status === 'passed' ? 'success' : r.status === 'failed' ? 'error' : 'info', 5000)
+      U.toast(`${r.name} : ${r.passed} ok, ${r.failed} ko`, r.status === 'passed' ? 'success' : r.status === 'failed' ? 'error' : 'info', 5000, `Test ${(REPORT_STATUS[r.status] || r.status).toLowerCase()}`)
     }
   })
   socket.on('reportsCleared', loadReports)

@@ -55,9 +55,11 @@ Options utiles : `--host`, `--port` (serveur Minecraft), `--version 1.20.4`, `--
 
 ## L'interface web
 
+Le design reprend le langage visuel des menus de Minecraft : coins carrés, reliefs biseautés, vraies cases d'inventaire, infobulles à bordure violette, police pixel [Monocraft](https://github.com/IdreesInc/Monocraft). Comme sur une IHM industrielle, la base reste grise et la couleur ne sert qu'à signaler un état : vert = en jeu, orange = connexion, rouge = erreur. Le thème suit le réglage du système : sombre « ardoise » ou clair « inventaire ». Les touches **1 à 5** changent d'onglet, comme la barre d'inventaire, et **Échap** ferme la fiche d'un bot. Toutes les polices sont servies localement : l'interface fonctionne sans Internet.
+
 | Onglet | Contenu |
 | --- | --- |
-| **Tableau de bord** | Ping du serveur (version, protocole, joueurs, MOTD, latence), création de bots/essaims, cartes des bots (vie, faim, position, ping, **TPS estimé**, mode, graphes), actions groupées (connexion, déconnexion, chat, mode, graphe, signal, suppression). |
+| **Bots** | Ping du serveur (version, protocole, joueurs, MOTD, latence), création de bots/essaims, tableau des bots (voyant d'état, jauges de vie et de faim en 10 cases, position, ping, **TPS estimé**, mode, graphes), actions groupées (connexion, déconnexion, chat, mode, graphe, signal, suppression). |
 | **Fiche d'un bot** | Console de chat en direct (historique ↑), contrôles de déplacement (maintenir), « aller à », regard, attaque, utilisation d'objet ; mode + options ; inventaire cliquable ; **menu (GUI) ouvert avec clic gauche/droit/Maj sur les cases** ; graphes en cours ; plugins ; journal du bot. |
 | **Éditeur de comportements** | Programmation visuelle (voir plus bas). |
 | **Rapports** | Résultats des tests : statut, vérifications ✔/✘, mesures (min/moy/max + courbe), journal, erreurs ; export JSON. |
@@ -101,7 +103,7 @@ L'éditeur (onglet **Éditeur de comportements**) permet de construire un compor
 
 **Utilisation de l'éditeur** : glisser un nœud depuis la palette (ou double-clic sur le fond pour l'ajout rapide), glisser une sortie vers un nœud pour relier, glisser une entrée reliée pour détacher le lien, clic droit pour le menu contextuel, molette pour zoomer, Maj+glisser pour une sélection rectangulaire. Raccourcis : Suppr, Ctrl+C/V/D, Ctrl+Z/Y, Ctrl+S, Ctrl+A, F (tout afficher).
 
-**▶ Lancer** exécute le graphe affiché (même non enregistré) sur les bots choisis : les nœuds **clignotent quand ils s'exécutent** et passent en **rouge en cas d'erreur** (message au survol et dans l'inspecteur). Relancer un graphe sur un bot remplace l'exécution précédente.
+**▶ Lancer** exécute le graphe affiché (même non enregistré) sur les bots choisis. Les liens sont dessinés comme des **fils de redstone** qui s'allument quand le signal passe, les nœuds s'encadrent quand ils s'exécutent, et un nœud en erreur est marqué en rouge (le message apparaît au survol et dans l'inspecteur). Les nœuds évènements ont un en-tête rayé, les commentaires prennent l'allure de panneaux en bois. Relancer un graphe sur un bot remplace l'exécution précédente.
 
 Les graphes sont enregistrés en JSON dans `graphs/` (versionnables avec git). Exemples fournis :
 
@@ -232,3 +234,5 @@ npm test     # tests unitaires (expressions, moteur de graphes, registres, exemp
 ## Licence
 
 [AGPL-3.0](LICENSE)
+
+Polices : [Monocraft](https://github.com/IdreesInc/Monocraft) © Idrees Hassan et IBM Plex © IBM, toutes deux sous licence SIL Open Font License 1.1 (`public/fonts/monocraft/OFL.txt`). Arthur's Bot n'est ni affilié ni approuvé par Mojang ou Microsoft.

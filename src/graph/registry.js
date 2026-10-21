@@ -15,16 +15,17 @@
  * Types de paramètres : string, text, number, boolean, select, expression, variable, json, mode
  */
 
+// Couleurs des teintures de Minecraft (Java Edition).
 const CATEGORIES = [
-  { name: 'Évènements', color: '#e5534b' },
-  { name: 'Logique', color: '#a371f7' },
-  { name: 'Variables', color: '#d29922' },
-  { name: 'Déplacement', color: '#388bfd' },
-  { name: 'Actions', color: '#3fb950' },
-  { name: 'Inventaire & GUI', color: '#db6d28' },
-  { name: 'Monde', color: '#2ea6a0' },
-  { name: 'Tests', color: '#db61a2' },
-  { name: 'Divers', color: '#768390' }
+  { name: 'Évènements', color: '#b02e26' },
+  { name: 'Logique', color: '#8932b8' },
+  { name: 'Variables', color: '#fed83d' },
+  { name: 'Déplacement', color: '#3ab3da' },
+  { name: 'Actions', color: '#80c71f' },
+  { name: 'Inventaire & GUI', color: '#f9801d' },
+  { name: 'Monde', color: '#169c9c' },
+  { name: 'Tests', color: '#c74ebd' },
+  { name: 'Divers', color: '#9d9d97' }
 ]
 
 const registry = new Map()

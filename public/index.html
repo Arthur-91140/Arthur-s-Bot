@@ -4,20 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Arthur's Bot</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%233fb950'/><rect x='3' y='4' width='3' height='3' fill='%23111'/><rect x='10' y='4' width='3' height='3' fill='%23111'/><rect x='5' y='10' width='6' height='2' fill='%23111'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect x='1' y='1' width='10' height='10' fill='%23000'/%3E%3Crect x='2' y='2' width='8' height='8' fill='%238b8b8b'/%3E%3Crect x='3' y='4' width='2' height='2' fill='%2355ffff'/%3E%3Crect x='7' y='4' width='2' height='2' fill='%2355ffff'/%3E%3Crect x='4' y='7' width='4' height='1' fill='%23373737'/%3E%3Crect x='5' y='0' width='2' height='1' fill='%23ff3b1f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-sans-condensed/400.css">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-sans-condensed/600.css">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-mono/400.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="logo">⛏</span> Arthur's Bot</div>
-    <nav class="tabs">
-      <button data-tab="dashboard" class="active">Tableau de bord</button>
-      <button data-tab="editor">Éditeur de comportements</button>
-      <button data-tab="reports">Rapports</button>
-      <button data-tab="logs">Journal</button>
-      <button data-tab="help">Aide</button>
+    <div class="brand"><svg class="logo" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="10" height="10" fill="#000"/><rect x="2" y="2" width="8" height="8" fill="#8b8b8b"/><rect x="2" y="2" width="8" height="1" fill="#c6c6c6"/><rect x="2" y="9" width="8" height="1" fill="#555"/><rect x="3" y="4" width="2" height="2" fill="#55ffff"/><rect x="7" y="4" width="2" height="2" fill="#55ffff"/><rect x="4" y="7" width="4" height="1" fill="#373737"/><rect x="5" y="0" width="2" height="1" fill="#ff3b1f"/></svg><span>Arthur's Bot</span></div>
+    <nav class="tabs" aria-label="Sections">
+      <button data-tab="dashboard" class="active"><span class="key">1</span>Bots</button>
+      <button data-tab="editor"><span class="key">2</span>Comportements</button>
+      <button data-tab="reports"><span class="key">3</span>Rapports</button>
+      <button data-tab="logs"><span class="key">4</span>Journal</button>
+      <button data-tab="help"><span class="key">5</span>Aide</button>
     </nav>
-    <span id="conn-status" class="conn" title="Connexion au serveur">●</span>
+    <div class="top-status"><span id="top-summary"></span><span id="conn-status" class="led conn" title="Connexion au serveur"></span></div>
   </header>
 
   <main>
@@ -48,7 +51,7 @@
               <div class="field grow"><label for="c-delay">Délai entre connexions (ms)</label><input id="c-delay" name="joinDelay" type="number" min="0" step="100"></div>
               <div class="field grow"><label for="c-auth">Authentification</label>
                 <select id="c-auth" name="auth">
-                  <option value="offline">Hors ligne (crack)</option>
+                  <option value="offline">Hors ligne</option>
                   <option value="microsoft">Microsoft</option>
                 </select>
               </div>
@@ -74,26 +77,30 @@
 
         <div class="bots-area">
           <div class="bulkbar panel">
-            <label class="check"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
-            <span class="muted tiny">Actions sur la sélection (ou tous si rien n'est sélectionné) :</span>
+            <div class="bulk-head">
+              <label class="check"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
+              <span class="muted tiny">— actions sur la sélection, ou sur tous les bots si rien n'est coché</span>
+            </div>
             <div class="row wrap">
               <button class="btn small success" data-bulk="connect">Connecter</button>
               <button class="btn small" data-bulk="disconnect">Déconnecter</button>
               <button class="btn small" data-bulk="reconnect">Reconnecter</button>
               <button class="btn small" data-bulk="stop">Stop mouvements</button>
               <button class="btn small danger-ghost" data-bulk="remove">Supprimer</button>
-              <select id="bulk-mode" class="small"></select>
-              <select id="bulk-graph" class="small"></select>
-              <button id="stop-all-graphs" class="btn small danger">■ Graphes</button>
+            </div>
+            <div class="row wrap">
+              <select id="bulk-mode" class="small" title="Appliquer un mode"></select>
+              <select id="bulk-graph" class="small" title="Lancer un graphe"></select>
+              <button id="stop-all-graphs" class="btn small danger">Arrêter les graphes</button>
+              <input id="bulk-signal" type="text" class="w120 small" placeholder="Signal" value="go">
+              <button id="bulk-signal-btn" class="btn small">Envoyer le signal</button>
             </div>
             <div class="row">
               <input id="bulk-chat" type="text" class="grow" placeholder="Message ou /commande envoyé par la sélection">
               <button id="bulk-chat-btn" class="btn small primary">Envoyer</button>
-              <input id="bulk-signal" type="text" class="w120" placeholder="Signal" value="go">
-              <button id="bulk-signal-btn" class="btn small">Signal</button>
             </div>
           </div>
-          <div id="bots-grid" class="bots-grid"></div>
+          <div id="bots-grid" class="panel roster-wrap"></div>
         </div>
       </div>
     </section>
@@ -105,7 +112,7 @@
     <section id="tab-reports" class="tab">
       <div class="reports">
         <div class="panel report-side">
-          <div class="row"><h3 class="grow">Rapports</h3><button id="reports-clear" class="btn small danger-ghost">Effacer les terminés</button></div>
+          <div class="row panel-title"><h3 class="grow">Rapports</h3><button id="reports-clear" class="btn small danger-ghost">Effacer les terminés</button></div>
           <div id="report-summary" class="muted small"></div>
           <div id="report-list"></div>
         </div>

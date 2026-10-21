@@ -15,6 +15,8 @@ const { runAction, runBulk } = require('../core/actions')
 const pkg = require('../../package.json')
 
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public')
+// Polices IBM Plex servies localement : l'interface fonctionne sans Internet.
+const FONTSOURCE_DIR = path.dirname(path.dirname(require.resolve('@fontsource/ibm-plex-mono/package.json')))
 
 const BOT_FUNCTIONS = [
   'hasItem(nom, n)', 'countItem(nom)', 'blockAt(x, y, z)', 'blockBelow()', 'distanceTo(x, y, z)',
@@ -50,6 +52,7 @@ function startWebServer ({ manager, logger, config }) {
   io.use((socket, next) => (checkToken(socket.handshake.auth && socket.handshake.auth.token) ? next() : next(new Error('unauthorized'))))
 
   app.use(express.static(PUBLIC_DIR))
+  app.use('/vendor/fonts', express.static(FONTSOURCE_DIR, { maxAge: '7d' }))
 
   // Exécute un gestionnaire et renvoie son résultat en JSON (erreurs → 400).
   const route = fn => async (req, res) => {

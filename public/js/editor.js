@@ -6,6 +6,15 @@ const GRID = 10
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 2
 
+/** Couleur du texte d'en-tête selon la clarté de la couleur de catégorie. */
+function inkFor (hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '')
+  if (!m) return 'dark-ink'
+  const n = parseInt(m[1], 16)
+  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.6 ? 'light-ink' : 'dark-ink'
+}
+
 function uid (prefix = 'n') {
   return prefix + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3)
 }
@@ -79,7 +88,7 @@ class GraphEditor {
     e.world = h('div', { class: 'world' }, e.svg, e.nodes)
     e.box = h('div', { class: 'select-box', style: { display: 'none' } })
     e.hint = h('div', { class: 'canvas-hint' },
-      'Glissez un nœud depuis la palette • double-clic : ajout rapide • glisser une sortie vers une entrée pour relier • molette : zoom • clic droit : menu')
+      'Glissez un nœud depuis la palette · double-clic : ajout rapide · reliez une sortie à une entrée · molette : zoom · clic droit : menu')
     e.canvas = h('div', { class: 'canvas', tabindex: '0' }, e.world, e.box, e.hint)
 
     e.inspector = h('aside', { class: 'inspector' })
@@ -168,17 +177,16 @@ class GraphEditor {
           const spot = this.freeSpot(p.x - 100, p.y)
           this.addNode(d.type, spot.x, spot.y)
         }
-      }, d.event ? '⚡ ' : '', d.label)))
+      }, h('span', { class: 'grow' }, d.label), d.event ? h('span', { class: 'evt', title: 'Évènement : démarre un flux' }, 'évt') : null)))
       list.appendChild(h('div', { class: `palette-cat${isCollapsed ? ' collapsed' : ''}` },
         h('div', {
           class: 'palette-cat-title',
-          style: { color: cat.color },
           onclick: () => {
             collapsed[cat.name] = !collapsed[cat.name]
             U.store('palette-collapsed', collapsed)
             this.renderPalette()
           }
-        }, `${isCollapsed ? '▸' : '▾'} ${cat.name}`, h('span', { class: 'count' }, defs.length)),
+        }, h('span', { class: 'swatch', style: { background: cat.color } }), cat.name, h('span', { class: 'count' }, `${isCollapsed ? '+' : '−'} ${defs.length}`)),
         isCollapsed ? null : items))
     }
   }
@@ -442,6 +450,20 @@ class GraphEditor {
       el.classList.remove('flash')
       el.getBoundingClientRect()
       el.classList.add('flash')
+      this.powerLinks(t.nodeId)
+    }
+  }
+
+  /** Allume les fils qui ont amené le signal jusqu'au nœud. */
+  powerLinks (nodeId) {
+    if (!this.linkEls) return
+    for (const link of this.graph.links) {
+      if (link.to !== nodeId) continue
+      const path = this.linkEls.get(link.id)
+      if (!path) continue
+      path.classList.add('on')
+      clearTimeout(path._off)
+      path._off = setTimeout(() => path.classList.remove('on'), 650)
     }
   }
 
@@ -491,16 +513,16 @@ class GraphEditor {
         h('div', { class: 'node-header' }, h('span', { class: 'port in', dataset: { port: 'in' } }), `Type inconnu : ${node.type}`))
     } else if (def.passive) {
       el = h('div', { class: 'node comment', dataset: { id: node.id } },
-        h('div', { class: 'node-header', style: { background: def.color } }, '💬 ', def.label),
+        h('div', { class: 'node-header' }, 'Panneau'),
         h('div', { class: 'comment-text' }, node.params.text ?? def.params[0].default))
     } else {
       const outputs = def.outputs.map(o => h('div', { class: 'out-row' },
         h('span', { class: 'out-label' }, o.label),
         h('span', { class: 'port out', dataset: { port: o.name }, title: o.label || o.name })))
       el = h('div', { class: `node${def.event ? ' event' : ''}`, dataset: { id: node.id }, title: def.description },
-        h('div', { class: 'node-header', style: { background: def.color } },
+        h('div', { class: `node-header ${inkFor(def.color)}`, style: { background: def.color } },
           def.input ? h('span', { class: 'port in', dataset: { port: 'in' }, title: 'Entrée' }) : null,
-          h('span', { class: 'node-title' }, def.event ? '⚡ ' : '', def.label)),
+          h('span', { class: 'node-title' }, def.label)),
         h('div', { class: 'node-body' },
           h('div', { class: 'node-summary' }, this.summary(node, def).map(([k, v]) =>
             h('div', { class: 'sum-line' }, h('span', { class: 'k' }, `${k} : `), h('span', { class: 'v' }, v.length > 38 ? v.slice(0, 36) + '…' : v)))),
@@ -529,15 +551,26 @@ class GraphEditor {
     return this.toWorld(r.left + r.width / 2, r.top + r.height / 2)
   }
 
+  /** Tracé d'un fil de redstone : segments à angle droit, détour par le côté pour les liens arrière. */
   curve (a, b) {
-    const dx = Math.max(40, Math.abs(b.x - a.x) / 2)
-    return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`
+    const stub = 14
+    const ax = Math.round(a.x)
+    const ay = Math.round(a.y)
+    const bx = Math.round(b.x)
+    const by = Math.round(b.y)
+    if (bx - ax >= stub * 2) {
+      const mx = Math.round((ax + bx) / 2)
+      return `M ${ax} ${ay} H ${mx} V ${by} H ${bx}`
+    }
+    const my = Math.abs(ay - by) < 60 ? Math.max(ay, by) + 60 : Math.round((ay + by) / 2)
+    return `M ${ax} ${ay} H ${ax + stub} V ${my} H ${bx - stub} V ${by} H ${bx}`
   }
 
   renderLinks () {
     const svgNS = 'http://www.w3.org/2000/svg'
     const svg = this.el.svg
     while (svg.firstChild) svg.removeChild(svg.firstChild)
+    this.linkEls = new Map()
     for (const link of this.graph.links) {
       const a = this.portPos(link.from, link.fromPort, 'out')
       const b = this.portPos(link.to, 'in', 'in')
@@ -549,8 +582,7 @@ class GraphEditor {
       const path = document.createElementNS(svgNS, 'path')
       path.setAttribute('d', this.curve(a, b))
       path.setAttribute('class', `link${this.selectedLink === link.id ? ' selected' : ''}`)
-      const def = this.defs.get((this.graph.nodes.find(n => n.id === link.from) || {}).type)
-      if (def) path.style.stroke = def.color
+      this.linkEls.set(link.id, path)
       svg.appendChild(path)
       svg.appendChild(hit)
     }

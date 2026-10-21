@@ -64,10 +64,14 @@ const U = (() => {
     return data
   }
 
-  function toast (message, type = 'info', ms = 3500) {
+  const TOAST_TITLES = { info: 'Information', success: 'Terminé', warn: 'Attention', error: 'Erreur' }
+
+  /** Notification façon « progrès accompli », en haut à droite. */
+  function toast (message, type = 'info', ms = 3500, title = null) {
     const box = document.getElementById('toasts')
-    const el = h('div', { class: `toast ${type}` }, message)
+    const el = h('div', { class: `toast ${type}` }, h('span', { class: 'toast-title' }, title || TOAST_TITLES[type] || ''), message)
     box.appendChild(el)
+    while (box.children.length > 5) box.firstChild.remove()
     setTimeout(() => el.classList.add('hide'), ms)
     setTimeout(() => el.remove(), ms + 400)
   }
