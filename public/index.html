@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arthur's Bot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%233fb950'/><rect x='3' y='4' width='3' height='3' fill='%23111'/><rect x='10' y='4' width='3' height='3' fill='%23111'/><rect x='5' y='10' width='6' height='2' fill='%23111'/></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">⛏</span> Arthur's Bot</div>
+    <nav class="tabs">
+      <button data-tab="dashboard" class="active">Tableau de bord</button>
+      <button data-tab="editor">Éditeur de comportements</button>
+      <button data-tab="reports">Rapports</button>
+      <button data-tab="logs">Journal</button>
+      <button data-tab="help">Aide</button>
+    </nav>
+    <span id="conn-status" class="conn" title="Connexion au serveur">●</span>
+  </header>
+
+  <main>
+    <!-- Tableau de bord -->
+    <section id="tab-dashboard" class="tab active">
+      <div class="dash">
+        <aside class="side">
+          <div class="panel">
+            <h3>Serveur</h3>
+            <div class="row">
+              <div class="field grow"><label for="srv-host">Adresse</label><input id="srv-host" type="text" placeholder="localhost"></div>
+              <div class="field w90"><label for="srv-port">Port</label><input id="srv-port" type="number" placeholder="25565"></div>
+            </div>
+            <div class="row">
+              <div class="field grow"><label for="srv-version">Version</label><select id="srv-version"></select></div>
+              <button id="ping-btn" class="btn" type="button">Ping</button>
+            </div>
+            <div id="ping-result"></div>
+          </div>
+
+          <form id="create-form" class="panel" autocomplete="off">
+            <h3>Créer des bots</h3>
+            <div class="row">
+              <div class="field grow"><label for="c-username">Pseudo ou motif</label><input id="c-username" name="username" type="text" placeholder="Testeur ou Bot_{i}"></div>
+              <div class="field w70"><label for="c-count">Nombre</label><input id="c-count" name="count" type="number" min="1" max="500" value="1"></div>
+            </div>
+            <div class="row">
+              <div class="field grow"><label for="c-delay">Délai entre connexions (ms)</label><input id="c-delay" name="joinDelay" type="number" min="0" step="100"></div>
+              <div class="field grow"><label for="c-auth">Authentification</label>
+                <select id="c-auth" name="auth">
+                  <option value="offline">Hors ligne (crack)</option>
+                  <option value="microsoft">Microsoft</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field grow"><label for="create-mode">Mode initial</label><select id="create-mode" name="mode"></select></div>
+              <div class="field grow"><label for="create-graph">Comportement</label><select id="create-graph" name="graph"></select></div>
+            </div>
+            <details class="options">
+              <summary>Options</summary>
+              <label class="check"><input type="checkbox" name="autoReconnect"><span>Reconnexion automatique</span></label>
+              <label class="check"><input type="checkbox" name="autoRespawn"><span>Réapparition automatique</span></label>
+              <label class="check"><input type="checkbox" name="autoEat"><span>Manger automatiquement</span></label>
+              <label class="check"><input type="checkbox" name="autoArmor"><span>Équiper l'armure ramassée</span></label>
+              <label class="check"><input type="checkbox" name="acceptResourcePack"><span>Accepter le pack de ressources</span></label>
+              <label class="check"><input type="checkbox" name="authme"><span>AuthMe : /register et /login automatiques</span></label>
+              <div class="field"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
+            </details>
+            <button class="btn primary full" type="submit">Créer et connecter</button>
+            <p class="muted tiny">« {i} » est remplacé par un numéro (1, 2, 3…). En mode hors ligne, un pseudo fait au plus 16 caractères.</p>
+          </form>
+        </aside>
+
+        <div class="bots-area">
+          <div class="bulkbar panel">
+            <label class="check"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
+            <span class="muted tiny">Actions sur la sélection (ou tous si rien n'est sélectionné) :</span>
+            <div class="row wrap">
+              <button class="btn small success" data-bulk="connect">Connecter</button>
+              <button class="btn small" data-bulk="disconnect">Déconnecter</button>
+              <button class="btn small" data-bulk="reconnect">Reconnecter</button>
+              <button class="btn small" data-bulk="stop">Stop mouvements</button>
+              <button class="btn small danger-ghost" data-bulk="remove">Supprimer</button>
+              <select id="bulk-mode" class="small"></select>
+              <select id="bulk-graph" class="small"></select>
+              <button id="stop-all-graphs" class="btn small danger">■ Graphes</button>
+            </div>
+            <div class="row">
+              <input id="bulk-chat" type="text" class="grow" placeholder="Message ou /commande envoyé par la sélection">
+              <button id="bulk-chat-btn" class="btn small primary">Envoyer</button>
+              <input id="bulk-signal" type="text" class="w120" placeholder="Signal" value="go">
+              <button id="bulk-signal-btn" class="btn small">Signal</button>
+            </div>
+          </div>
+          <div id="bots-grid" class="bots-grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Éditeur -->
+    <section id="tab-editor" class="tab"><div id="editor-root" class="editor-root"></div></section>
+
+    <!-- Rapports -->
+    <section id="tab-reports" class="tab">
+      <div class="reports">
+        <div class="panel report-side">
+          <div class="row"><h3 class="grow">Rapports</h3><button id="reports-clear" class="btn small danger-ghost">Effacer les terminés</button></div>
+          <div id="report-summary" class="muted small"></div>
+          <div id="report-list"></div>
+        </div>
+        <div id="report-detail" class="panel report-detail"><p class="muted">Sélectionnez un rapport.</p></div>
+      </div>
+    </section>
+
+    <!-- Journal -->
+    <section id="tab-logs" class="tab">
+      <div class="panel logs">
+        <div class="row wrap">
+          <select id="log-source"></select>
+          <select id="log-level">
+            <option value="">Tous les niveaux</option>
+            <option value="info">Info et plus</option>
+            <option value="warn">Avertissements et erreurs</option>
+            <option value="error">Erreurs</option>
+          </select>
+          <input id="log-search" type="search" placeholder="Filtrer…" class="grow">
+          <label class="check"><input id="log-pause" type="checkbox"><span>Pause</span></label>
+          <button id="log-clear" class="btn small">Vider l'affichage</button>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </div>
+    </section>
+
+    <!-- Aide -->
+    <section id="tab-help" class="tab"><div id="help-content" class="panel help"></div></section>
+  </main>
+
+  <aside id="drawer" class="drawer hidden">
+    <div class="drawer-head"></div>
+    <div class="drawer-stats"></div>
+    <div class="drawer-tabs"></div>
+    <div class="drawer-body"></div>
+  </aside>
+
+  <div id="toasts"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

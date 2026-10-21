@@ -1,0 +1,46 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 25565,
+    "version": "auto"
+  },
+  "bot": {
+    "auth": "offline",
+    "autoReconnect": true,
+    "reconnectDelay": 5000,
+    "maxReconnectAttempts": 0,
+    "checkTimeoutInterval": 30000,
+    "viewDistance": "tiny",
+    "plugins": {
+      "autoRespawn": true,
+      "autoEat": true,
+      "autoArmor": false,
+      "acceptResourcePack": true,
+      "authme": {
+        "enabled": false,
+        "password": "ArthurBot123!"
+      }
+    }
+  },
+  "swarm": {
+    "namePattern": "Bot_{i}",
+    "joinDelay": 1500
+  },
+  "web": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3000,
+    "token": ""
+  },
+  "logs": {
+    "maxLines": 3000,
+    "console": "info",
+    "file": "logs/arthur-bot.log"
+  },
+  "paths": {
+    "graphs": "graphs",
+    "reports": "reports",
+    "profiles": ".auth"
+  },
+  "autostart": []
+}

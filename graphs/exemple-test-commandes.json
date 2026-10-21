@@ -1,0 +1,178 @@
+{
+  "id": "exemple-test-commandes",
+  "name": "Exemple : test automatisé de commandes",
+  "description": "Scénario de test (compatible CI) : vérifie /list et /help, l'état du bot, mesure TPS et ping puis termine le rapport.",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {},
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "misc.comment",
+      "x": 40,
+      "y": -120,
+      "params": {
+        "text": "À lancer en CI :\nnode bin/arthur-bot.js run graphs/exemple-test-commandes.json --host localhost --junit rapport.xml"
+      }
+    },
+    {
+      "id": "start",
+      "type": "event.start",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "waitSpawn": true
+      }
+    },
+    {
+      "id": "wait",
+      "type": "flow.wait",
+      "x": 280,
+      "y": 40,
+      "params": {
+        "ms": 1500
+      }
+    },
+    {
+      "id": "list",
+      "type": "test.command",
+      "x": 520,
+      "y": 40,
+      "params": {
+        "send": "/list",
+        "pattern": "online|en ligne|joueurs|players",
+        "failPattern": "unknown command|commande inconnue|permission",
+        "timeout": 3000,
+        "record": true
+      }
+    },
+    {
+      "id": "help",
+      "type": "test.command",
+      "x": 780,
+      "y": 40,
+      "params": {
+        "send": "/help",
+        "pattern": ".",
+        "failPattern": "unknown command|commande inconnue",
+        "timeout": 3000,
+        "record": true
+      }
+    },
+    {
+      "id": "alive",
+      "type": "test.assert",
+      "x": 1040,
+      "y": 40,
+      "params": {
+        "condition": "bot.health > 0 && bot.online",
+        "message": "Le bot est vivant et en jeu"
+      }
+    },
+    {
+      "id": "tps",
+      "type": "test.metric",
+      "x": 1040,
+      "y": 220,
+      "params": {
+        "name": "tps",
+        "value": "bot.tps"
+      }
+    },
+    {
+      "id": "ping",
+      "type": "test.metric",
+      "x": 1280,
+      "y": 220,
+      "params": {
+        "name": "ping",
+        "value": "bot.ping"
+      }
+    },
+    {
+      "id": "end",
+      "type": "test.finish",
+      "x": 1520,
+      "y": 220,
+      "params": {
+        "status": "auto",
+        "message": "",
+        "stopGraph": true
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "start",
+      "fromPort": "out",
+      "to": "wait",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "wait",
+      "fromPort": "out",
+      "to": "list",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "list",
+      "fromPort": "ok",
+      "to": "help",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "list",
+      "fromPort": "fail",
+      "to": "help",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "help",
+      "fromPort": "ok",
+      "to": "alive",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "help",
+      "fromPort": "fail",
+      "to": "alive",
+      "toPort": "in"
+    },
+    {
+      "id": "l7",
+      "from": "alive",
+      "fromPort": "pass",
+      "to": "tps",
+      "toPort": "in"
+    },
+    {
+      "id": "l8",
+      "from": "alive",
+      "fromPort": "fail",
+      "to": "tps",
+      "toPort": "in"
+    },
+    {
+      "id": "l9",
+      "from": "tps",
+      "fromPort": "out",
+      "to": "ping",
+      "toPort": "in"
+    },
+    {
+      "id": "l10",
+      "from": "ping",
+      "fromPort": "out",
+      "to": "end",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,133 @@
+{
+  "id": "exemple-essaim-chat",
+  "name": "Exemple : essaim coordonné (stress chat)",
+  "description": "Lancez-le sur plusieurs bots puis envoyez le signal \"go\" depuis le tableau de bord : chaque bot envoie 10 messages.",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {},
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "misc.comment",
+      "x": 40,
+      "y": -110,
+      "params": {
+        "text": "Envoyez le signal « go » (tableau de bord → Signal) pour démarrer.\nLe compteur partagé shared.total compte les messages de tous les bots."
+      }
+    },
+    {
+      "id": "sig",
+      "type": "event.custom",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "name": "go"
+      }
+    },
+    {
+      "id": "jit",
+      "type": "flow.waitRandom",
+      "x": 280,
+      "y": 40,
+      "params": {
+        "min": 0,
+        "max": 3000
+      }
+    },
+    {
+      "id": "rep",
+      "type": "flow.repeat",
+      "x": 520,
+      "y": 40,
+      "params": {
+        "count": 10,
+        "variable": "index"
+      }
+    },
+    {
+      "id": "msg",
+      "type": "action.chat",
+      "x": 780,
+      "y": 40,
+      "params": {
+        "message": "Test de charge {{ index + 1 }}/10 de {{ bot.username }}"
+      }
+    },
+    {
+      "id": "cnt",
+      "type": "var.increment",
+      "x": 1040,
+      "y": 40,
+      "params": {
+        "name": "total",
+        "amount": 1,
+        "scope": "shared"
+      }
+    },
+    {
+      "id": "w",
+      "type": "flow.wait",
+      "x": 1280,
+      "y": 40,
+      "params": {
+        "ms": 1000
+      }
+    },
+    {
+      "id": "done",
+      "type": "flow.log",
+      "x": 780,
+      "y": 220,
+      "params": {
+        "message": "Terminé ({{ shared.total }} messages au total pour l'essaim)",
+        "level": "info"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "sig",
+      "fromPort": "out",
+      "to": "jit",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "jit",
+      "fromPort": "out",
+      "to": "rep",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "rep",
+      "fromPort": "body",
+      "to": "msg",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "msg",
+      "fromPort": "out",
+      "to": "cnt",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "cnt",
+      "fromPort": "out",
+      "to": "w",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "rep",
+      "fromPort": "done",
+      "to": "done",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,185 @@
+{
+  "id": "exemple-survie",
+  "name": "Exemple : surveillance de survie",
+  "description": "Mange quand la faim baisse, signale la vie basse, journalise les morts et les téléportations (setbacks d'anti-cheat).",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {
+    "morts": 0,
+    "tp": 0
+  },
+  "nodes": [
+    {
+      "id": "tick",
+      "type": "event.interval",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "interval": 10000,
+        "allowOverlap": false
+      }
+    },
+    {
+      "id": "hungry",
+      "type": "flow.if",
+      "x": 280,
+      "y": 40,
+      "params": {
+        "condition": "bot.food < 12"
+      }
+    },
+    {
+      "id": "eat",
+      "type": "inv.consume",
+      "x": 520,
+      "y": 40,
+      "params": {
+        "item": "bread"
+      }
+    },
+    {
+      "id": "noeat",
+      "type": "flow.log",
+      "x": 780,
+      "y": 120,
+      "params": {
+        "message": "Faim à {{ bot.food }} mais pas de pain !",
+        "level": "warn"
+      }
+    },
+    {
+      "id": "low",
+      "type": "event.health",
+      "x": 40,
+      "y": 240,
+      "params": {
+        "below": 8
+      }
+    },
+    {
+      "id": "warn",
+      "type": "flow.log",
+      "x": 280,
+      "y": 240,
+      "params": {
+        "message": "Vie basse : {{ event.health }}/20",
+        "level": "warn"
+      }
+    },
+    {
+      "id": "death",
+      "type": "event.death",
+      "x": 40,
+      "y": 380,
+      "params": {}
+    },
+    {
+      "id": "dc",
+      "type": "var.increment",
+      "x": 280,
+      "y": 380,
+      "params": {
+        "name": "morts",
+        "amount": 1,
+        "scope": "graph"
+      }
+    },
+    {
+      "id": "dn",
+      "type": "test.note",
+      "x": 520,
+      "y": 380,
+      "params": {
+        "message": "Mort n°{{ morts }} en {{ bot.blockX }} {{ bot.blockY }} {{ bot.blockZ }}"
+      }
+    },
+    {
+      "id": "fm",
+      "type": "event.forcedMove",
+      "x": 40,
+      "y": 520,
+      "params": {}
+    },
+    {
+      "id": "tc",
+      "type": "var.increment",
+      "x": 280,
+      "y": 520,
+      "params": {
+        "name": "tp",
+        "amount": 1,
+        "scope": "graph"
+      }
+    },
+    {
+      "id": "tn",
+      "type": "test.metric",
+      "x": 520,
+      "y": 520,
+      "params": {
+        "name": "téléportations",
+        "value": "tp"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "tick",
+      "fromPort": "out",
+      "to": "hungry",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "hungry",
+      "fromPort": "true",
+      "to": "eat",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "eat",
+      "fromPort": "failed",
+      "to": "noeat",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "low",
+      "fromPort": "out",
+      "to": "warn",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "death",
+      "fromPort": "out",
+      "to": "dc",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "dc",
+      "fromPort": "out",
+      "to": "dn",
+      "toPort": "in"
+    },
+    {
+      "id": "l7",
+      "from": "fm",
+      "fromPort": "out",
+      "to": "tc",
+      "toPort": "in"
+    },
+    {
+      "id": "l8",
+      "from": "tc",
+      "fromPort": "out",
+      "to": "tn",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}

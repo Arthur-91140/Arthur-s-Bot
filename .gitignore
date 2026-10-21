@@ -1,0 +1,7 @@
+node_modules/
+logs/
+reports/
+.auth/
+config/config.json
+*.log
+.DS_Store
