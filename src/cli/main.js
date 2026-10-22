@@ -7,6 +7,7 @@ const USAGE = `Arthur's Bot ${pkg.version} — bots Minecraft de test
 Utilisation :
   arthur-bot [start] [options]          interface web + console interactive
   arthur-bot run <graphe> [options]     exécute un scénario de test (CI) puis quitte
+  arthur-bot campaign <campagne>        lance une campagne (campaigns/*.json) puis quitte
   arthur-bot ping [hôte[:port]]         interroge un serveur
   arthur-bot versions                   versions de Minecraft supportées
   arthur-bot modes                      modes prédéfinis
@@ -26,6 +27,8 @@ Options de run :
   --timeout <s>           durée max (120)             --spawn-timeout <s> (60)
   --join-delay <ms>       délai entre bots            --mode <mode>    mode initial
   --report <fichier.json> --junit <fichier.xml>       --quiet
+
+Options de campaign : --report, --junit, --quiet, --web (garde l'interface pendant la campagne)
 `
 
 function parseArgs (argv) {
@@ -84,6 +87,18 @@ async function main (argv) {
       }
       const { runScenario } = require('./run')
       process.exitCode = await runScenario({ ...opts, graph })
+      process.exit(process.exitCode)
+      return
+    }
+    case 'campaign': {
+      const ref = opts._[1] || opts.campaign
+      if (!ref) {
+        process.stderr.write('Indiquez une campagne : arthur-bot campaign exemple-charge-mixte\n')
+        process.exitCode = 2
+        return
+      }
+      const { runCampaign } = require('./run')
+      process.exitCode = await runCampaign({ ...opts, campaign: ref })
       process.exit(process.exitCode)
       return
     }

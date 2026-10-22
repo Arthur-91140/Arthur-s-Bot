@@ -16,9 +16,10 @@
     <nav class="tabs" aria-label="Sections">
       <button data-tab="dashboard" class="active"><span class="key">1</span>Bots</button>
       <button data-tab="editor"><span class="key">2</span>Comportements</button>
-      <button data-tab="reports"><span class="key">3</span>Rapports</button>
-      <button data-tab="logs"><span class="key">4</span>Journal</button>
-      <button data-tab="help"><span class="key">5</span>Aide</button>
+      <button data-tab="campaigns"><span class="key">3</span>Campagnes</button>
+      <button data-tab="reports"><span class="key">4</span>Rapports</button>
+      <button data-tab="logs"><span class="key">5</span>Journal</button>
+      <button data-tab="help"><span class="key">6</span>Aide</button>
     </nav>
     <div class="top-status">
       <span id="top-summary"></span><span id="conn-status" class="led conn" title="Connexion au serveur"></span>
@@ -69,15 +70,24 @@
             <div class="panel-title map-title">
               <h3 class="grow">Carte</h3>
               <select id="map-dim" class="small" title="Dimension"></select>
-              <select id="trail-minutes" class="small" title="Durée des traces">
-                <option value="0">Sans traces</option>
-                <option value="1">Traces 1 min</option>
-                <option value="5">Traces 5 min</option>
-                <option value="15">Traces 15 min</option>
-                <option value="30">Traces 30 min</option>
-                <option value="60">Traces 1 h</option>
+              <button id="trail-clear" class="btn small" title="Effacer les traces et les repères (pour toutes les fenêtres)">Effacer</button>
+            </div>
+            <div class="map-controls">
+              <select id="map-layer" class="small" title="Ce que montre la carte">
+                <option value="trails">Traces</option>
+                <option value="presence">Chaleur : présence</option>
+                <option value="death">Chaleur : morts</option>
+                <option value="stuck">Chaleur : blocages</option>
+                <option value="kick">Chaleur : expulsions</option>
               </select>
-              <button id="trail-clear" class="btn small" title="Effacer les traces (pour toutes les fenêtres)">Effacer</button>
+              <select id="trail-minutes" class="small" title="Période affichée">
+                <option value="0">Masquer</option>
+                <option value="1">1 min</option>
+                <option value="5">5 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">1 h</option>
+              </select>
             </div>
             <div id="map" class="map inset"></div>
             <div id="map-legend" class="map-legend"></div>
@@ -92,6 +102,21 @@
 
     <!-- Éditeur -->
     <section id="tab-editor" class="tab"><div id="editor-root" class="editor-root"></div></section>
+
+    <!-- Campagnes -->
+    <section id="tab-campaigns" class="tab">
+      <div class="campaigns">
+        <div class="panel report-side">
+          <div class="row panel-title"><h3 class="grow">Campagnes</h3><button id="campaign-new" class="btn small">+ Nouvelle</button></div>
+          <div id="campaign-list"></div>
+          <p class="muted tiny">Fichiers JSON du dossier campaigns/, à versionner avec vos tests.</p>
+        </div>
+        <div class="campaign-main">
+          <div id="campaign-run" class="panel camp-run" hidden></div>
+          <div id="campaign-editor" class="panel campaign-editor"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- Rapports -->
     <section id="tab-reports" class="tab">
@@ -211,8 +236,25 @@
           <label class="check"><input type="checkbox" name="autoArmor"><span>Équiper l'armure ramassée</span></label>
           <label class="check"><input type="checkbox" name="acceptResourcePack"><span>Accepter le pack de ressources</span></label>
           <label class="check"><input type="checkbox" name="authme"><span>AuthMe automatique</span></label>
+          <label class="check"><input type="checkbox" name="followTransfers"><span>Suivre les transferts</span></label>
+          <label class="check"><input type="checkbox" name="refuseCodeOfConduct"><span>Refuser le code de conduite</span></label>
         </div>
-        <div class="field"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
+        <div class="row">
+          <div class="field grow"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
+          <div class="field grow"><label for="c-process">Processus</label>
+            <select id="c-process" name="process">
+              <option value="auto">Automatique (ouvriers au-delà du seuil)</option>
+              <option value="main">Processus principal</option>
+              <option value="worker">Processus ouvrier</option>
+            </select>
+          </div>
+        </div>
+      </details>
+      <details class="options" id="mix-details">
+        <summary>Population mixte</summary>
+        <p class="muted tiny">Répartit l'essaim entre plusieurs comportements selon leur poids (options par défaut de chaque mode). Laisser vide pour un seul mode.</p>
+        <div id="mix-rows"></div>
+        <button class="btn small" type="button" id="mix-add">+ Comportement</button>
       </details>
       <p class="muted tiny">« {i} » est remplacé par 1, 2, 3… En mode hors ligne, un pseudo fait au plus 16 caractères.</p>
       <div class="screen-actions">
@@ -223,11 +265,25 @@
     </form>
   </dialog>
 
+  <dialog id="tools-dialog" class="screen wide">
+    <h2 class="screen-title">Outils du serveur</h2>
+    <div class="seg tools-tabs"></div>
+    <div class="tools-body"></div>
+  </dialog>
+
+  <dialog id="camp-options-dialog" class="screen">
+    <h2 class="screen-title">Options du mode</h2>
+    <div class="camp-options-body"></div>
+    <div class="screen-actions"><span class="grow"></span><button class="btn primary" type="button" onclick="this.closest('dialog').close()">OK</button></div>
+  </dialog>
+
   <div id="toasts"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="js/util.js"></script>
   <script src="js/editor.js"></script>
+  <script src="js/servertools.js"></script>
+  <script src="js/campaigns.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

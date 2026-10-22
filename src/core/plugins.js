@@ -13,7 +13,9 @@ const PLUGIN_INFO = [
   { key: 'autoEat', label: 'Manger auto', description: 'Mange quand la faim descend sous 15.' },
   { key: 'autoArmor', label: 'Armure auto', description: 'Équipe la meilleure armure ramassée (au prochain login).' },
   { key: 'acceptResourcePack', label: 'Accepter le pack de ressources', description: 'Répond "accepté" aux packs de ressources du serveur.' },
-  { key: 'authme', label: 'AuthMe /register /login', description: 'Répond automatiquement aux demandes /register et /login.' }
+  { key: 'authme', label: 'AuthMe /register /login', description: 'Répond automatiquement aux demandes /register et /login.' },
+  { key: 'followTransfers', label: 'Suivre les transferts', description: 'Rejoint le serveur indiqué par un paquet de transfert (1.20.5+), cookies compris.' },
+  { key: 'refuseCodeOfConduct', label: 'Refuser le code de conduite', description: 'Ne pas accepter le code de conduite du serveur (1.21.9+), pour tester le blocage.' }
 ]
 
 /**

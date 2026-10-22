@@ -39,6 +39,11 @@ const state = {
   trailKeep: 60, // minutes conservées par le serveur
   trailMinutes: U.store('trail-minutes') ?? 5,
   monitor: false,
+  markers: [], // morts, blocages, expulsions (carte de chaleur)
+  mapLayer: U.store('map-layer') || 'trails',
+  serverTools: null, // RCON et protocole de gestion (1.21.9+)
+  health: null, // santé du programme (processus principal + ouvriers)
+  campaign: null, // campagne en cours ou dernière terminée
   chatHistory: U.store('chat-history') || []
 }
 
@@ -53,6 +58,7 @@ function showTab (name) {
   if (name === 'editor' && editor) requestAnimationFrame(() => editor.renderLinks())
   if (name === 'logs') renderLogs()
   if (name === 'reports') loadReports()
+  if (name === 'campaigns') CampaignsUI.load()
   if (name === 'dashboard') renderMap()
 }
 
@@ -115,10 +121,12 @@ function renderServerEntry () {
         h('span', { class: 'server-name' }, serverLabel()),
         h('span', { class: 'server-players', title: r && r.players && r.players.sample.length ? r.players.sample.join(', ') : null }, players),
         r && !r.pending ? pingBars(r.latency, r.online) : h('span', { class: 'muted tiny' }, 'ping…')),
-      r && !r.pending ? pingDetails(r) : h('div', { class: 'motd muted' }, 'Interrogation du serveur…')),
+      r && !r.pending ? pingDetails(r) : h('div', { class: 'motd muted' }, 'Interrogation du serveur…'),
+      ToolsUI.statusLine()),
     h('div', { class: 'server-actions' },
       h('button', { class: 'btn small', title: 'Interroger à nouveau', onclick: refreshServer }, 'Rafraîchir'),
-      h('button', { class: 'btn small', onclick: openServerDialog }, 'Modifier')))
+      h('button', { class: 'btn small', onclick: openServerDialog }, 'Modifier'),
+      h('button', { class: 'btn small', title: 'RCON et protocole de gestion (1.21.9+)', onclick: () => ToolsUI.open() }, 'Outils')))
 }
 
 function openServerDialog () {
@@ -178,13 +186,21 @@ async function createBots (ev) {
     mode: f.mode.value,
     autoReconnect: f.autoReconnect.checked,
     graph: f.graph.value || undefined,
+    process: f.process.value,
     plugins: {
       autoRespawn: f.autoRespawn.checked,
       autoEat: f.autoEat.checked,
       autoArmor: f.autoArmor.checked,
       acceptResourcePack: f.acceptResourcePack.checked,
+      followTransfers: f.followTransfers.checked,
+      refuseCodeOfConduct: f.refuseCodeOfConduct.checked,
       authme: { enabled: f.authme.checked, password: f.authmePassword.value }
     }
+  }
+  const mix = mixRows()
+  if (mix.length) {
+    if (count < 2) return U.toast('La population mixte demande au moins 2 bots', 'warn')
+    body.mix = mix
   }
   if (!body.username) return U.toast('Indiquez un pseudo ou un motif (ex. Bot_{i})', 'warn')
   U.store('create-form', { username: body.username, count, joinDelay: body.joinDelay, auth: body.auth, mode: body.mode })
@@ -225,7 +241,31 @@ function fillSelects () {
   f.acceptResourcePack.checked = p.acceptResourcePack
   f.authme.checked = p.authme.enabled
   f.authmePassword.value = p.authme.password
+  f.followTransfers.checked = p.followTransfers !== false
+  f.refuseCodeOfConduct.checked = !!p.refuseCodeOfConduct
   f.autoReconnect.checked = state.info.defaults.bot.autoReconnect
+  for (const row of U.store('create-mix') || []) addMixRow(row)
+}
+
+// --- Population mixte (essaim aux comportements répartis) ---------------------------------
+
+function addMixRow (row = { weight: 50, mode: 'wander' }) {
+  const box = $('mix-rows')
+  const modeSel = h('select', null, state.info.modes.map(m => h('option', { value: m.name, selected: m.name === row.mode ? 'selected' : null }, m.label)))
+  const weight = h('input', { type: 'number', min: 1, value: row.weight, class: 'w90', title: 'Poids (proportion)' })
+  box.appendChild(h('div', { class: 'mix-row' },
+    weight, h('span', { class: 'muted small' }, '%'), modeSel,
+    h('button', { class: 'btn small danger-ghost', type: 'button', title: 'Retirer', onclick: ev => ev.target.closest('.mix-row').remove() }, '×')))
+  $('mix-details').open = true
+}
+
+function mixRows () {
+  const rows = [...document.querySelectorAll('#mix-rows .mix-row')].map(r => ({
+    weight: Number(r.querySelector('input').value) || 0,
+    mode: r.querySelector('select').value
+  })).filter(r => r.weight > 0)
+  U.store('create-mix', rows)
+  return rows
 }
 
 function fillGraphSelects () {
@@ -347,8 +387,45 @@ function renderKpis () {
     kpi('Bots en jeu', h('span', null, `${online.length}`, h('small', null, ` / ${bots.length}`)), null, lamps),
     kpi('TPS du serveur', tps ?? '—', 'moyenne mesurée par les bots', stepChart(state.history.tps.slice(-120), { min: 0, max: 20, cls: 'tps' }), tpsCls),
     kpi('Ping moyen', pingAvg !== null && pingAvg !== undefined ? h('span', null, `${Math.round(pingAvg)}`, h('small', null, ' ms')) : '—', null, stepChart(state.history.ping.slice(-120), { min: 0, cls: 'ping' })),
+    serverSeenKpi(online),
     kpi('Comportements', running, running ? 'graphes en cours' : 'aucun graphe en cours'),
-    kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' ok · '), h('span', { class: failed ? 'error' : '' }, failed), h('small', null, ' ko')), `${reports.length} rapport${reports.length > 1 ? 's' : ''}`))
+    kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' ok · '), h('span', { class: failed ? 'error' : '' }, failed), h('small', null, ' ko')), `${reports.length} rapport${reports.length > 1 ? 's' : ''}`),
+    healthKpi())
+}
+
+function fmtMB (bytes) {
+  return bytes >= 1e9 ? `${Math.round(bytes / 1e8) / 10} Go` : `${Math.round(bytes / 1e6)} Mo`
+}
+
+/** Santé du programme : au-delà des seuils, ping et TPS mesurés par les bots sont faussés. */
+function healthKpi () {
+  const hl = state.health
+  if (!hl) return kpi('Programme', '—', 'mesure en cours')
+  const procs = hl.processes.length
+  const title = hl.processes.map(p => `${p.process} (pid ${p.pid}) : ${p.bots} bot(s), CPU ${p.cpu} %, ${fmtMB(p.rss)}, boucle ${p.loopP99} ms`).join('\n')
+  const box = kpi('Programme', h('span', null, `${hl.loopP99}`, h('small', null, ' ms')),
+    `CPU ${hl.cpu} % · ${fmtMB(hl.rss)}${procs > 1 ? ` · ${procs} processus` : ''}`, null,
+    hl.level === 'bad' ? 'bad' : hl.level === 'warn' ? 'meh' : 'good')
+  box.title = `Retard de la boucle d'évènements (99e centile). Au-delà de ${hl.limits.loopWarn} ms, les mesures des bots sont faussées.\n${title}`
+  return box
+}
+
+/** Joueurs vus par le serveur (protocole de gestion 1.21.9+), comparés aux bots en jeu. */
+function serverSeenKpi (online) {
+  const m = state.serverTools && state.serverTools.management
+  if (!m || !m.connected) return null
+  const missing = ghostBots(online)
+  return kpi('Vus par le serveur', h('span', null, `${m.players.length}`, h('small', null, ' joueurs')),
+    missing.length ? `${missing.length} bot(s) en jeu absent(s) côté serveur` : `${m.joinsPerMinute} connexion(s) / min`,
+    null, missing.length ? 'meh' : '')
+}
+
+/** Bots en jeu depuis plus de 10 s que le serveur ne compte pas parmi ses joueurs. */
+function ghostBots (online) {
+  const m = state.serverTools && state.serverTools.management
+  if (!m || !m.connected) return []
+  const seen = new Set(m.players)
+  return online.filter(b => b.uptime > 10000 && !seen.has(b.id))
 }
 
 // --- Liste des bots -----------------------------------------------------------------
@@ -394,7 +471,9 @@ function botRow (b) {
     }
   },
   h('td', null, select),
-  h('td', null, h('span', { class: 'name-cell' }, U.faceImg(b.id, 20), h('span', { class: `led ${b.status}` }), h('span', { class: 'name' }, b.id))),
+  h('td', null, h('span', { class: 'name-cell' }, U.faceImg(b.id, 20), h('span', { class: `led ${b.status}` }), h('span', { class: 'name' }, b.id),
+    b.process ? h('span', { class: 'proc', title: `Hébergé par le processus ouvrier ${b.process}` }, b.process) : null,
+    b.dialog ? h('span', { class: 'chip', title: `Boîte de dialogue ouverte : ${b.dialog.title}` }, 'dialogue') : null)),
   h('td', null, stateTag(b.status),
     reason ? h('span', { class: 'reason', title: reason }, reason) : null,
     b.msaCode ? h('span', { class: 'reason warn', title: b.msaCode.uri }, `Microsoft : code ${b.msaCode.code}`) : null),
@@ -510,6 +589,7 @@ async function loadTrails () {
     const res = await U.api('GET', '/api/trails')
     state.trailKeep = res.keepMinutes || state.trailKeep
     state.trails = new Map(Object.entries(res.trails))
+    state.markers = res.markers || []
   } catch (err) {
     // pas d'historique : les nouveaux points s'afficheront quand même
   }
@@ -541,6 +621,7 @@ function applyTrails (changes) {
 
 function pruneTrails () {
   const since = Date.now() - state.trailKeep * 60000
+  if (state.markers.length && state.markers[0].t < since) state.markers = state.markers.filter(m => m.t >= since)
   for (const [id, t] of state.trails) {
     if (!state.bots.has(id)) {
       state.trails.delete(id)
@@ -570,6 +651,7 @@ function svgEl (tag, attrs = {}) {
 function renderMap () {
   const placed = [...state.bots.values()].filter(b => b.position && b.status === 'online')
   const dims = [...new Set(placed.map(b => b.dimension || 'overworld'))]
+  if (!dims.length && state.mapLayer !== 'trails') dims.push(state.mapDim || 'overworld')
   if (!dims.includes(state.mapDim)) state.mapDim = dims.includes('overworld') ? 'overworld' : dims[0] || null
   const sel = $('map-dim')
   if (sel.dataset.dims !== dims.join(',')) {
@@ -588,14 +670,17 @@ function renderMap () {
 function drawMap (box, legend, bots, { big = false } = {}) {
   if (!box || !box.clientWidth) return
   U.clear(box)
-  if (!bots.length) {
-    box.appendChild(h('div', { class: 'map-empty' }, 'Aucun bot en jeu à afficher'))
+  const layer = state.mapLayer
+  const heat = layer === 'trails' ? null : heatPoints(layer)
+  // la chaleur reste consultable après un test, même sans bot en jeu
+  if (!bots.length && !(heat && heat.points.length)) {
+    box.appendChild(h('div', { class: 'map-empty' }, heat ? `Aucun repère : ${HEAT_LAYERS[layer]}` : 'Aucun bot en jeu à afficher'))
     if (legend) U.clear(legend)
     return
   }
   const W = box.clientWidth
   const H = box.clientHeight
-  const trails = new Map(bots.map(b => [b.id, trailOf(b.id, state.mapDim)]))
+  const trails = new Map(heat ? [] : bots.map(b => [b.id, trailOf(b.id, state.mapDim)]))
   // Emprise : les bots et leurs traces (boucle simple, les traces peuvent compter des milliers de points).
   let minX = Infinity
   let maxX = -Infinity
@@ -609,6 +694,7 @@ function drawMap (box, legend, bots, { big = false } = {}) {
   }
   for (const b of bots) extend(b.position.x, b.position.z)
   for (const pts of trails.values()) for (const p of pts) if (p) extend(p[0], p[1])
+  if (heat) for (const p of heat.points) extend(p[0], p[1])
   const cx = (minX + maxX) / 2
   const cz = (minZ + maxZ) / 2
   const span = Math.max(48, (maxX - minX) * 1.25, (maxZ - minZ) * 1.25)
@@ -639,7 +725,7 @@ function drawMap (box, legend, bots, { big = false } = {}) {
   ctx.lineCap = 'round'
   for (const b of bots) {
     const pts = trails.get(b.id)
-    if (pts.length < 2) continue
+    if (!pts || pts.length < 2) continue
     ctx.strokeStyle = botColor(b.id)
     ctx.lineWidth = state.openBot === b.id ? 3.5 : 2
     let bucket = -1
@@ -678,6 +764,7 @@ function drawMap (box, legend, bots, { big = false } = {}) {
     }
     if (bucket >= 0) ctx.stroke()
   }
+  if (heat) drawHeat(ctx, heat, px, pz, W, H, big)
   box.appendChild(canvas)
 
   const taken = []
@@ -710,26 +797,127 @@ function drawMap (box, legend, bots, { big = false } = {}) {
   box.appendChild(svg)
   if (legend) {
     U.add(U.clear(legend),
+      heat ? h('span', { class: 'heat-legend' }, h('i'), heat.label) : null,
       h('span', null, `centre ${Math.round(cx)}, ${Math.round(cz)}`),
       h('span', null, `1 carreau = ${step} blocs`))
   }
 }
 
+const HEAT_LAYERS = {
+  presence: 'présence des bots',
+  death: 'morts',
+  stuck: 'blocages',
+  kick: 'expulsions'
+}
+
+/** Points de la carte de chaleur : positions des traces ou repères (morts, blocages, expulsions). */
+function heatPoints (layer) {
+  const minutes = state.trailMinutes || 15
+  const since = Date.now() - minutes * 60000
+  const points = []
+  if (layer === 'presence') {
+    for (const t of state.trails.values()) {
+      if (t.dim !== state.mapDim) continue
+      for (const p of t.points) if (p && p[2] >= since) points.push(p)
+    }
+    return { points, markers: false, label: `${HEAT_LAYERS[layer]}, ${minutes} min` }
+  }
+  for (const m of state.markers) {
+    if (m.kind === layer && m.dim === state.mapDim && m.t >= since) points.push([m.x, m.z, m.t, m])
+  }
+  return { points, markers: true, label: `${points.length} ${HEAT_LAYERS[layer]}, ${minutes} min` }
+}
+
+/** Chaleur par cases de quelques pixels, du jaune (peu) au rouge (beaucoup). */
+function drawHeat (ctx, heat, px, pz, W, H, big) {
+  const cell = big ? 10 : 7
+  const cols = Math.ceil(W / cell)
+  const counts = new Map()
+  let max = 0
+  for (const p of heat.points) {
+    const cx = Math.floor(px(p[0]) / cell)
+    const cy = Math.floor(pz(p[1]) / cell)
+    if (cx < 0 || cy < 0 || cx >= cols || cy * cell >= H) continue
+    // les repères rayonnent sur les cases voisines pour rester visibles
+    const spread = heat.markers ? 1 : 0
+    for (let dx = -spread; dx <= spread; dx++) {
+      for (let dy = -spread; dy <= spread; dy++) {
+        const k = (cy + dy) * cols + (cx + dx)
+        const v = (counts.get(k) || 0) + (dx || dy ? 0.5 : 1)
+        counts.set(k, v)
+        if (v > max) max = v
+      }
+    }
+  }
+  ctx.globalAlpha = 1
+  for (const [k, v] of counts) {
+    const t = Math.sqrt(v / max)
+    ctx.fillStyle = `hsla(${Math.round(55 - 55 * t)}, 100%, ${Math.round(55 - 10 * t)}%, ${(0.25 + 0.6 * t).toFixed(2)})`
+    ctx.fillRect((k % cols) * cell, Math.floor(k / cols) * cell, cell, cell)
+  }
+  if (!heat.markers) return
+  // croix aux positions exactes
+  ctx.strokeStyle = '#fff'
+  ctx.lineWidth = 2
+  ctx.globalAlpha = 0.9
+  for (const p of heat.points) {
+    const x = px(p[0])
+    const y = pz(p[1])
+    ctx.beginPath()
+    ctx.moveTo(x - 3, y - 3)
+    ctx.lineTo(x + 3, y + 3)
+    ctx.moveTo(x + 3, y - 3)
+    ctx.lineTo(x - 3, y + 3)
+    ctx.stroke()
+  }
+}
+
 // --- Fil d'évènements ------------------------------------------------------------------------
 
-const SYSTEM_SOURCES = new Set(['manager', 'web', 'system', 'ci', 'autostart'])
-const FEED_RE = /^(Connecté|Déconnecté|Apparu|Expulsé|Le bot est mort|Comportement|Mode :|Reconnexion)/
+const SYSTEM_SOURCES = new Set(['manager', 'web', 'system', 'ci', 'autostart', 'serveur', 'campagne', 'processus'])
+const FEED_RE = /^(Connecté|Déconnecté|Apparu|Expulsé|Le bot est mort|Comportement|Mode :|Reconnexion|Transfert|Boîte de dialogue|Campagne|Processus ouvrier|Promeneur : (débloqué|téléporté)|Explorateur volant|Protocole de gestion)/
+
+/** Clé de regroupement : même source, même message aux nombres près. */
+function feedKey (l) {
+  return `${l.source}|${l.level}|${l.message.replace(/\d+([.,]\d+)?/g, '#')}`
+}
 
 function addToFeed (lines) {
   let changed = false
   for (const l of lines) {
     if (l.level === 'debug') continue
     if (l.level === 'info' && !FEED_RE.test(l.message)) continue
-    state.feed.push(l)
+    // Un message qui se répète ne remplit pas le fil : il s'affiche une fois avec « ×N ».
+    const key = feedKey(l)
+    const same = state.feed.slice(-6).reverse().find(f => f.key === key)
+    if (same) {
+      same.count = (same.count || 1) + 1
+      same.t = l.t
+      same.message = l.message
+      state.feed.splice(state.feed.indexOf(same), 1)
+      state.feed.push(same)
+    } else {
+      state.feed.push({ ...l, key, count: 1 })
+    }
     changed = true
   }
   if (state.feed.length > 80) state.feed.splice(0, state.feed.length - 80)
   if (changed) renderFeed()
+}
+
+/** Notifications du serveur (protocole de gestion) dans le fil, sans les allées et venues des bots. */
+function onServerEvents (events) {
+  const lines = []
+  for (const n of events) {
+    if ((n.kind === 'players/joined' || n.kind === 'players/left') && state.bots.has(n.player)) continue
+    lines.push({
+      t: n.t,
+      level: n.kind === 'server/stopping' ? 'warn' : 'info',
+      source: 'serveur',
+      message: `Protocole de gestion — ${n.label}${n.player ? ` : ${n.player}` : ''}`
+    })
+  }
+  if (lines.length) addToFeed(lines)
 }
 
 function renderFeed () {
@@ -757,7 +945,7 @@ function renderFeedInto (box, max) {
     },
     bot ? U.faceImg(bot, 16) : h('span', { class: 'feed-dot' }),
     h('div', { class: 'feed-text' },
-      h('div', { class: 'feed-meta' }, h('span', null, who), h('span', null, U.fmtTime(l.t))),
+      h('div', { class: 'feed-meta' }, h('span', null, who), h('span', null, U.fmtTime(l.t)), l.count > 1 ? h('span', { class: 'feed-count', title: `${l.count} fois` }, `×${l.count}`) : null),
       h('div', null,
         graph ? h('span', { class: 'feed-graph' }, `${graph} — `) : null,
         l.message.length > 160 ? `${l.message.slice(0, 158)}…` : l.message))))
@@ -826,7 +1014,18 @@ function monitorAlerts (bots, tps) {
   if (kicks) alerts.push(['warn', `${kicks} expulsion${kicks > 1 ? 's' : ''} en 1 min`])
   const deaths = lastMinute('deaths')
   if (deaths) alerts.push(['warn', `${deaths} mort${deaths > 1 ? 's' : ''} en 1 min`])
-  if (!alerts.length) alerts.push(['ok', 'Tout est normal'])
+  const hl = state.health
+  if (hl && hl.level === 'bad') alerts.push(['bad', `Programme saturé (boucle ${hl.loopP99} ms) : mesures faussées`])
+  else if (hl && hl.level === 'warn') alerts.push(['warn', `Programme chargé (boucle ${hl.loopP99} ms)`])
+  const m = state.serverTools && state.serverTools.management
+  if (m && !m.connected) alerts.push(['warn', 'Protocole de gestion déconnecté'])
+  if (m && m.connected) {
+    const ghosts = ghostBots(bots.filter(b => b.status === 'online'))
+    if (ghosts.length) alerts.push(['warn', `${ghosts.length} bot${ghosts.length > 1 ? 's' : ''} absent${ghosts.length > 1 ? 's' : ''} côté serveur`])
+    if (m.saving) alerts.push(['info', 'Sauvegarde du monde'])
+  }
+  if (state.campaign && state.campaign.phase !== 'done') alerts.push(['info', `Campagne : ${state.campaign.phaseLabel}`])
+  if (!alerts.some(a => a[0] !== 'info')) alerts.unshift(['ok', 'Tout est normal'])
   return alerts
 }
 
@@ -875,7 +1074,9 @@ function renderMonitor () {
     kpi('Expulsions / min', kicks, `${lastMinute('deaths')} mort(s) / min`, null, kicks ? 'meh' : ''),
     kpi('Messages / min', lastMinute('messages'), 'reçus par les bots'),
     kpi('Graphes', running, 'en cours'),
-    kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' / '), h('span', { class: failed ? 'error' : '' }, failed)), 'réussis / échoués'))
+    kpi('Tests', h('span', null, h('span', { class: 'ok' }, passed), h('small', null, ' / '), h('span', { class: failed ? 'error' : '' }, failed)), 'réussis / échoués'),
+    serverSeenKpi(online),
+    healthKpi())
   U.add(U.clear($('mon-chart-tps')), monitorChart(state.history.tps, { min: 0, max: 20, cls: 'tps' }))
   U.add(U.clear($('mon-chart-online')), monitorChart(state.history.online, { min: 0, max: Math.max(1, bots.length), cls: 'online' }))
   U.add(U.clear($('mon-chart-ping')), monitorChart(state.history.ping, { min: 0, unit: ' ms', cls: 'ping' }))
@@ -1072,7 +1273,7 @@ async function renderDrawer (full = false) {
     b.lastError ? h('div', { class: 'alert error' }, `Dernière erreur : ${b.lastError}`) : null)
 
   const tabs = drawer.querySelector('.drawer-tabs')
-  const names = { console: 'Console', view3d: 'Vue 3D', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', graphs: 'Graphes', plugins: 'Plugins', logs: 'Journal' }
+  const names = { console: 'Console', view3d: 'Vue 3D', controls: 'Contrôles', mode: 'Mode', inventory: 'Inventaire', gui: 'Menu', protocol: 'Protocole', graphs: 'Graphes', plugins: 'Plugins', logs: 'Journal' }
   U.clear(tabs)
   for (const [key, label] of Object.entries(names)) {
     tabs.appendChild(h('button', {
@@ -1087,6 +1288,12 @@ async function renderDrawer (full = false) {
   if (!full) {
     // rafraîchissements légers sans reconstruire les formulaires
     if (state.drawerTab === 'graphs') renderDrawerGraphs(drawer.querySelector('.drawer-body'), b)
+    // une boîte de dialogue apparaît ou disparaît : on recharge l'onglet Protocole
+    const dialogKey = b.dialog ? b.dialog.title : ''
+    if (state.drawerTab === 'protocol' && drawer.dataset.dialog !== dialogKey && !drawer.querySelector('.drawer-body').contains(document.activeElement)) {
+      drawer.dataset.dialog = dialogKey
+      renderProtocol(U.clear(drawer.querySelector('.drawer-body')), b)
+    }
     return
   }
   stopViewer()
@@ -1098,6 +1305,9 @@ async function renderDrawer (full = false) {
     case 'mode': return renderMode(body, b)
     case 'inventory': return renderInventory(body, b)
     case 'gui': return renderGui(body, b)
+    case 'protocol':
+      drawer.dataset.dialog = b.dialog ? b.dialog.title : ''
+      return renderProtocol(body, b)
     case 'graphs': return renderDrawerGraphs(body, b)
     case 'plugins': return renderPlugins(body, b)
     case 'logs': return renderBotLogs(body, b)
@@ -1445,6 +1655,100 @@ async function renderBotLogs (body, b) {
   }
 }
 
+// --- Protocole : nouveautés 1.20.5 → 1.21.9 ---------------------------------------------------
+
+const PAYLOAD_FORMATS = [['text', 'Texte UTF-8'], ['utf-list', 'Chaînes Java (BungeeCord), une par ligne'], ['json', 'JSON'], ['hex', 'Hexadécimal']]
+
+async function renderProtocol (body, b) {
+  let p
+  try {
+    p = await U.api('GET', `/api/bots/${encodeURIComponent(b.id)}/protocol`)
+  } catch (err) {
+    body.appendChild(h('div', { class: 'alert warn' }, err.message))
+    return
+  }
+  const section = (title, ...content) => h('div', { class: 'proto-section' }, h('h4', null, title), ...content)
+  const none = text => h('div', { class: 'muted small' }, text)
+
+  // Boîte de dialogue (1.21.6+)
+  let dialogBox
+  if (p.dialog) {
+    const d = p.dialog
+    const values = {}
+    const inputs = d.inputs.map(i => {
+      let input
+      if (i.type === 'boolean') input = h('input', { type: 'checkbox', checked: !!i.initial, onchange: e => { values[i.key] = e.target.checked } })
+      else if (i.options) input = h('select', { onchange: e => { values[i.key] = e.target.value } }, i.options.map(o => h('option', { value: o.id }, o.label)))
+      else input = h('input', { type: 'text', value: i.initial ?? '', oninput: e => { values[i.key] = e.target.value } })
+      return h('div', { class: 'field' }, h('label', null, i.label, h('span', { class: 'tag' }, i.key)), input)
+    })
+    dialogBox = h('div', { class: 'mc-dialog' },
+      h('div', { class: 'mc-dialog-title' }, d.title),
+      d.body.map(t => h('p', null, t)),
+      inputs,
+      h('div', { class: 'mc-dialog-buttons' }, d.buttons.map((btn, i) => h('button', {
+        class: 'btn',
+        title: btn.action ? `${btn.action.type}${btn.action.command ? ` : ${btn.action.command}` : btn.action.template ? ` : ${btn.action.template}` : btn.action.id ? ` : ${btn.action.id}` : ''}` : 'ferme le dialogue',
+        onclick: async () => {
+          await botAction(b.id, 'dialog', { button: i, values })
+          renderProtocol(U.clear(body), b)
+        }
+      }, btn.label))),
+      h('div', { class: 'muted tiny' }, `${d.type} • reçu à ${U.fmtTime(d.t)}`))
+  }
+
+  const coc = p.codeOfConduct
+  const messages = [...(p.pluginMessages || [])].reverse()
+  const channel = h('input', { type: 'text', value: U.store('pm-channel') || 'bungeecord:main', class: 'mono' })
+  const format = h('select', null, PAYLOAD_FORMATS.map(([v, l]) => h('option', { value: v, selected: v === (U.store('pm-format') || 'utf-list') ? 'selected' : null }, l)))
+  const data = h('textarea', { rows: 2, class: 'mono' })
+  data.value = U.store('pm-data') ?? 'GetServer'
+  const register = h('input', { type: 'checkbox' })
+
+  U.add(body,
+    h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, 'Ce que le serveur a envoyé au bot sur cette connexion.'), h('button', { class: 'btn small', onclick: () => renderProtocol(U.clear(body), b) }, '↻ Actualiser')),
+    section('Boîte de dialogue — 1.21.6+', dialogBox || none('Aucune boîte de dialogue ouverte. Elles s\'affichent ici (commande /dialog ou plugin).')),
+    section('Code de conduite — 1.21.9+', coc
+      ? h('div', null, h('div', { class: `state ${coc.accepted ? 'online' : 'offline'}` }, coc.accepted ? 'Accepté' : 'Refusé'), h('pre', { class: 'proto-text' }, coc.text))
+      : none('Aucun code de conduite reçu.')),
+    section('Liens du serveur — 1.21+', p.links && p.links.length
+      ? h('div', { class: 'table' }, p.links.map(l => h('div', { class: 'trow' }, h('span', null, l.label), h('a', { class: 'grow mono small', href: l.url, target: '_blank', rel: 'noopener' }, l.url))))
+      : none('Aucun lien reçu.')),
+    section('Détails de rapport — 1.21+', p.reportDetails && p.reportDetails.length
+      ? h('div', { class: 'table' }, p.reportDetails.map(d => h('div', { class: 'trow' }, h('span', { class: 'mono' }, d.key), h('span', { class: 'grow' }, d.value))))
+      : none('Aucun détail reçu.')),
+    section('Transfert et cookies — 1.20.5+',
+      p.transfer
+        ? h('div', null, `Dernier transfert vers ${p.transfer.host}:${p.transfer.port} à ${U.fmtTime(p.transfer.t)} — ${p.transfer.followed ? 'suivi' : 'ignoré'}`)
+        : none('Aucun transfert demandé.'),
+      p.cookies && p.cookies.length ? h('div', { class: 'small' }, `Cookies : ${p.cookies.join(', ')}`) : null),
+    section('Canaux de plugins',
+      p.channels && p.channels.length ? h('div', { class: 'proto-channels' }, p.channels.map(c => h('span', { class: 'tag' }, c))) : none('Aucun canal annoncé par le serveur.'),
+      h('div', { class: 'row wrap proto-send' },
+        h('div', { class: 'field grow' }, h('label', null, 'Canal'), channel),
+        h('div', { class: 'field grow' }, h('label', null, 'Format'), format)),
+      h('div', { class: 'field' }, h('label', null, 'Données'), data),
+      h('div', { class: 'row' },
+        h('label', { class: 'check grow' }, register, h('span', null, 'Déclarer le canal avant (minecraft:register)')),
+        h('button', {
+          class: 'btn primary small',
+          onclick: async () => {
+            U.store('pm-channel', channel.value)
+            U.store('pm-format', format.value)
+            U.store('pm-data', data.value)
+            await botAction(b.id, 'pluginMessage', { channel: channel.value.trim(), format: format.value, data: data.value, register: register.checked })
+            setTimeout(() => renderProtocol(U.clear(body), b), 400)
+          }
+        }, 'Envoyer')),
+      messages.length
+        ? h('div', { class: 'table proto-log' }, messages.map(m => h('div', { class: 'trow' },
+          h('span', { class: m.direction === 'out' ? 'warn' : 'ok' }, m.direction === 'out' ? '→' : '←'),
+          h('span', { class: 'time' }, U.fmtTime(m.t)),
+          h('span', { class: 'mono' }, m.channel),
+          h('span', { class: 'grow mono small' }, m.strings ? m.strings.join(' | ') : m.text !== null ? m.text.slice(0, 120) : `${m.size} octets : ${m.hex.slice(0, 48)}…`))))
+        : none('Aucun message de plugin échangé.')))
+}
+
 // --- Journal -------------------------------------------------------------------------
 
 const LOG_LEVEL = { debug: 'DEBUG', info: 'INFO', warn: 'WARN', error: 'ERROR', chat: 'CHAT' }
@@ -1645,7 +1949,15 @@ function renderHelp () {
       h('li', null, 'Créez un bot (pseudo) ou un essaim (motif « Bot_{i} » + nombre). Serveur en online-mode : choisissez l\'auth Microsoft.'),
       h('li', null, 'Choisissez un mode prédéfini (fiche du bot → Mode) ou programmez un comportement dans l\'éditeur.'),
       h('li', null, 'Lancez le graphe sur un ou plusieurs bots ; les nœuds exécutés clignotent en direct, les erreurs s\'affichent en rouge.'),
-      h('li', null, 'Les nœuds « Tests » produisent des rapports (onglet Rapports), utilisables en CI avec « arthur-bot run ».')),
+      h('li', null, 'Les nœuds « Tests » produisent des rapports (onglet Rapports), utilisables en CI avec « arthur-bot run ».'),
+      h('li', null, 'Bouton « Outils » du serveur : reliez RCON (commandes de préparation) et, en 1.21.9+, le protocole de gestion (joueurs vus par le serveur, sauvegardes, réglages, règles de jeu).'),
+      h('li', null, 'Onglet Campagnes : décrivez un test de charge complet (groupes de bots, préparation, durée, critères) et relancez-le en un clic ou en CI avec « arthur-bot campaign ».')),
+    h('h2', null, 'Tests de charge'),
+    h('ul', null,
+      h('li', null, 'Au-delà de 100 bots (réglage workers.botsPerProcess), les suivants sont hébergés par des processus ouvriers (badge P1, P2…) pour que le programme ne sature pas.'),
+      h('li', null, 'L\'indicateur « Programme » mesure le retard de la boucle d\'évènements : au-delà de 100 ms, ping et TPS mesurés par les bots sont faussés.'),
+      h('li', null, 'Population mixte : dans « Nouveau bot », répartissez un essaim entre plusieurs comportements (ex. 60 % promeneurs, 30 % anti-AFK, 10 % explorateurs volants).'),
+      h('li', null, 'Carte : calques de chaleur (présence, morts, blocages, expulsions) pour repérer les zones à problème. Les bots et les traces sont conservés d\'un redémarrage à l\'autre.')),
     h('h2', null, 'Expressions'),
     h('p', null, 'Les champs « expr » et les champs numériques acceptent des expressions. Dans un texte, insérez une valeur avec ', h('code', null, '{{ expression }}'), '.'),
     h('pre', null, 'bot.health < 10 && hasItem(\'bread\')\n"Salut " + event.username\ncompteur % 10 == 0 ? "dizaine" : "autre"\nmatch(event.message, "(\\w+) a rejoint")[1]\ndistanceTo(0, 64, 0) > 20'),
@@ -1662,7 +1974,7 @@ function renderHelp () {
     h('h2', null, 'Modes prédéfinis'),
     h('div', { class: 'table' }, state.info.modes.map(m => h('div', { class: 'trow' }, h('b', { class: 'w160' }, m.label), h('span', { class: 'muted small w100' }, m.category), h('span', { class: 'grow' }, m.description)))),
     h('h2', null, 'Ligne de commande'),
-    h('pre', null, 'npm start                          # interface web + console\nnode bin/arthur-bot.js run graphs/exemple-test-commandes.json --host localhost --port 25565 --junit rapport.xml\nnode bin/arthur-bot.js ping play.monserveur.fr:25565\nnode bin/arthur-bot.js nodes       # liste des nœuds'),
+    h('pre', null, 'npm start                          # interface web + console\nnode bin/arthur-bot.js run graphs/exemple-test-commandes.json --host localhost --port 25565 --junit rapport.xml\nnode bin/arthur-bot.js campaign exemple-charge-mixte --junit campagne.xml\nnode bin/arthur-bot.js ping play.monserveur.fr:25565\nnode bin/arthur-bot.js nodes       # liste des nœuds'),
     h('p', { class: 'muted small' }, `Arthur's Bot ${state.info.version} • Minecraft Java ${state.info.minecraft.oldest} → ${state.info.minecraft.latest} • ${state.info.nodes.length} nœuds • ${state.info.modes.length} modes`))
 }
 
@@ -1670,9 +1982,9 @@ function renderHelp () {
 
 async function init () {
   document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)))
-  // Raccourcis : 1 à 5 = onglets (barre d'inventaire), T ou / = chat, N = nouveau bot, M = écran de contrôle,
+  // Raccourcis : 1 à 6 = onglets (barre d'inventaire), T ou / = chat, N = nouveau bot, M = écran de contrôle,
   // Échap = quitter l'écran de contrôle ou fermer la fiche.
-  const tabKeys = ['dashboard', 'editor', 'reports', 'logs', 'help']
+  const tabKeys = ['dashboard', 'editor', 'campaigns', 'reports', 'logs', 'help']
   document.addEventListener('keydown', ev => {
     // Échap ferme la fiche, même depuis sa console (sauf menu ou fenêtre ouverts).
     if (ev.key === 'Escape') {
@@ -1696,7 +2008,7 @@ async function init () {
       return
     }
     if (state.monitor) return
-    if (/^[1-5]$/.test(ev.key)) showTab(tabKeys[Number(ev.key) - 1])
+    if (/^[1-6]$/.test(ev.key)) showTab(tabKeys[Number(ev.key) - 1])
     const onDashboard = $('tab-dashboard').classList.contains('active')
     if (onDashboard && (ev.key === 't' || ev.key === 'T' || ev.key === '/')) {
       ev.preventDefault()
@@ -1770,6 +2082,15 @@ async function init () {
   $('trail-clear').addEventListener('click', () => {
     U.api('DELETE', '/api/trails').catch(err => U.toast(err.message, 'error'))
   })
+  const layerSel = $('map-layer')
+  layerSel.value = state.mapLayer
+  layerSel.addEventListener('change', ev => {
+    state.mapLayer = ev.target.value
+    U.store('map-layer', state.mapLayer)
+    renderMap()
+  })
+  $('mix-add').addEventListener('click', () => addMixRow())
+  $('campaign-new').addEventListener('click', () => CampaignsUI.create())
   $('map-dim').addEventListener('change', ev => {
     state.mapDim = ev.target.value
     renderMap()
@@ -1812,9 +2133,31 @@ async function init () {
   })
   socket.on('trails', onTrails)
   socket.on('trailsCleared', ids => {
-    if (ids) for (const id of ids) state.trails.delete(id)
-    else state.trails.clear()
+    if (ids) {
+      for (const id of ids) state.trails.delete(id)
+      state.markers = state.markers.filter(m => !ids.includes(m.id))
+    } else {
+      state.trails.clear()
+      state.markers = []
+    }
     renderMap()
+  })
+  socket.on('markers', markers => {
+    state.markers.push(...markers)
+    if (state.mapLayer !== 'trails') renderMap()
+  })
+  socket.on('serverTools', tools => {
+    state.serverTools = tools
+    renderServerEntry()
+    ToolsUI.onState()
+  })
+  socket.on('serverEvents', onServerEvents)
+  socket.on('health', health => {
+    state.health = health
+  })
+  socket.on('campaign', CampaignsUI.onUpdate)
+  socket.on('campaigns', () => {
+    if ($('tab-campaigns').classList.contains('active')) CampaignsUI.load()
   })
   socket.on('disconnect', () => {
     state.socketOk = false

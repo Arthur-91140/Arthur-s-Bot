@@ -8,7 +8,7 @@ const { BotManager } = require('./core/BotManager')
  * Assemble l'application : configuration, journal, gestionnaire de bots et,
  * optionnellement, interface web et console interactive.
  */
-async function createApp ({ configPath, overrides = {}, web = true, repl = true } = {}) {
+async function createApp ({ configPath, overrides = {}, web = true, repl = true, restore = true } = {}) {
   const config = loadConfig(configPath)
   for (const [section, values] of Object.entries(overrides)) {
     config[section] = { ...config[section], ...values }
@@ -26,7 +26,10 @@ async function createApp ({ configPath, overrides = {}, web = true, repl = true 
     }
   }
 
+  // Bots de la session précédente (data/bots.json), puis ceux de la configuration.
+  if (restore) manager.restoreBots()
   for (const entry of config.autostart || []) {
+    if (entry.username && manager.get(entry.username)) continue
     try {
       if (entry.count > 1) manager.createSwarm(entry)
       else manager.createBot(entry)

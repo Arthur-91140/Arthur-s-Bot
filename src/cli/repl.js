@@ -119,10 +119,10 @@ function startRepl (app, onQuit) {
       if (!b) return print('Bot introuvable')
       print(JSON.stringify(b.getState(), null, 2))
     },
-    chat: ([id, n]) => {
+    chat: async ([id, n]) => {
       const b = manager.get(id)
       if (!b) return print('Bot introuvable')
-      for (const c of b.chatHistory.slice(-(Number(n) || 20))) print(`${new Date(c.t).toLocaleTimeString('fr-FR')} ${c.type === 'self' ? '> ' : ''}${c.message}`)
+      for (const c of await b.getChat(Number(n) || 20)) print(`${new Date(c.t).toLocaleTimeString('fr-FR')} ${c.type === 'self' ? '> ' : ''}${c.message}`)
     },
     focus: ([id]) => {
       focus = !id || id === 'off' ? null : id

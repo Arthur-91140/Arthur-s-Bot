@@ -8,12 +8,14 @@ const MAX_REPORTS = 200
 const MAX_ITEMS = 2000
 
 let seq = 0
+// Préfixe dans les processus ouvriers : les identifiants restent uniques une fois regroupés.
+const ID_PREFIX = process.env.ARTHUR_WORKER ? `w${process.env.ARTHUR_WORKER}` : ''
 
 /** Rapport de test : assertions, métriques, journal libre et statut final. */
 class Report {
   constructor (store, { kind = 'graph', name = 'Rapport', botId = null, source = null, graphId = null, runtimeId = null }) {
     this.store = store
-    this.id = `r${Date.now().toString(36)}${(++seq).toString(36)}`
+    this.id = `r${ID_PREFIX}${Date.now().toString(36)}${(++seq).toString(36)}`
     this.kind = kind
     this.name = name
     this.botId = botId
@@ -125,6 +127,24 @@ class ReportStore extends EventEmitter {
 
   get (id) {
     return this.reports.get(id) || null
+  }
+
+  /** Reprend un rapport produit par un processus ouvrier (forme toJSON). */
+  ingest (data) {
+    if (!data || !data.id) return null
+    let report = this.reports.get(data.id)
+    if (!report) {
+      report = new Report(this, data)
+      report.id = data.id
+      this.reports.set(report.id, report)
+    }
+    const wasDone = report.done
+    for (const key of ['kind', 'name', 'botId', 'source', 'graphId', 'status', 'message', 'startedAt', 'endedAt', 'assertions', 'metrics', 'entries', 'errors']) {
+      if (data[key] !== undefined) report[key] = data[key]
+    }
+    this.touch(report, true)
+    if (report.done && !wasDone) this.persist(report)
+    return report
   }
 
   list () {

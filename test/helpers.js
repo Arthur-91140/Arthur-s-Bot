@@ -14,6 +14,8 @@ function createTestManager () {
   config.paths.graphs = path.join(dir, 'graphs')
   config.paths.reports = null
   config.paths.data = null
+  config.workers = { enabled: false }
+  config.paths.campaigns = path.join(dir, 'campaigns')
   const logger = new Logger({ console: 'none', file: null })
   const manager = new BotManager({ config, logger })
   return { manager, logger, dir }

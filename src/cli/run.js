@@ -38,12 +38,17 @@ function toJUnit (reports) {
 async function runScenario (opts) {
   const overrides = {
     server: {},
-    logs: { console: opts.quiet ? 'warn' : (opts.logLevel || 'info'), file: null }
+    logs: { console: opts.quiet ? 'warn' : (opts.logLevel || 'info'), file: null },
+    // Le scénario suit ses exécutions de graphe directement : tous les bots restent dans ce processus.
+    workers: { enabled: false },
+    // ne pas écraser les bots et les traces enregistrés de la session interactive
+    session: { restoreBots: false },
+    trails: { persist: false }
   }
   if (opts.host) overrides.server.host = opts.host
   if (opts.port) overrides.server.port = Number(opts.port)
   if (opts.version) overrides.server.version = opts.version
-  const app = await createApp({ configPath: opts.config, overrides, web: !!opts.web, repl: false })
+  const app = await createApp({ configPath: opts.config, overrides, web: !!opts.web, repl: false, restore: false })
   const { manager, logger } = app
   const log = logger.child('ci')
 
@@ -101,4 +106,47 @@ async function runScenario (opts) {
   return ok ? 0 : 1
 }
 
-module.exports = { runScenario, toJUnit }
+/**
+ * Lance une campagne (préparation, bots, mesure, critères) et renvoie 0 si elle
+ * est réussie, 1 sinon. Les bots de la campagne peuvent aller dans des processus ouvriers.
+ */
+async function runCampaign (opts) {
+  const overrides = {
+    server: {},
+    logs: { console: opts.quiet ? 'warn' : (opts.logLevel || 'info'), file: null },
+    session: { restoreBots: false },
+    trails: { persist: false }
+  }
+  if (opts.host) overrides.server.host = opts.host
+  if (opts.port) overrides.server.port = Number(opts.port)
+  if (opts.version) overrides.server.version = opts.version
+  const app = await createApp({ configPath: opts.config, overrides, web: !!opts.web, repl: false, restore: false })
+  const { manager, logger } = app
+  let run
+  try {
+    run = manager.campaigns.start(opts.campaign)
+  } catch (err) {
+    logger.child('ci').error(err.message)
+    manager.shutdown()
+    await sleep(600)
+    return 2
+  }
+  const report = (await run.done, run.report.toJSON())
+  const ok = report.status === 'passed'
+  process.stdout.write(`${ok ? '✔' : '✘'} ${report.name} — ${report.status} — ${report.passed} critère(s) respecté(s), ${report.failed} non respecté(s), ${report.errors.length} erreur(s)\n`)
+  for (const a of report.assertions) process.stdout.write(`    ${a.ok ? '✔' : '✘'} ${a.message}\n`)
+  for (const e of report.errors) process.stdout.write(`    ! ${e.message}\n`)
+  if (opts.report) {
+    fs.mkdirSync(path.dirname(path.resolve(opts.report)), { recursive: true })
+    fs.writeFileSync(opts.report, JSON.stringify({ campaign: run.campaign, ok, report }, null, 2))
+  }
+  if (opts.junit) {
+    fs.mkdirSync(path.dirname(path.resolve(opts.junit)), { recursive: true })
+    fs.writeFileSync(opts.junit, toJUnit([report]))
+  }
+  manager.shutdown()
+  await sleep(1500)
+  return ok ? 0 : 1
+}
+
+module.exports = { runScenario, runCampaign, toJUnit }

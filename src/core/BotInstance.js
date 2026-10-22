@@ -10,6 +10,7 @@ const modes = require('../modes')
 const { ModeContext } = require('./ModeContext')
 const { attachPlugins, equipBestArmor } = require('./plugins')
 const { applyMovements, gotoGoal, stopMoving, goals } = require('./navigation')
+const proto = require('./protocol')
 const u = require('./utils')
 
 const CONTROLS = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak']
@@ -27,6 +28,12 @@ function loadPvp (bot) {
   }
 }
 const CHAT_HISTORY = 300
+const PLUGIN_LOG = 30
+
+/** Informations reçues par les nouveautés du protocole (réinitialisées à chaque connexion). */
+function emptyProtocol () {
+  return { dialog: null, links: null, reportDetails: null, codeOfConduct: null, transfer: null, pluginMessages: [], channels: [] }
+}
 
 /** Les 9 cases de la barre rapide (affichage façon HUD dans l'interface). */
 function hotbarOf (bot) {
@@ -90,6 +97,9 @@ class BotInstance extends EventEmitter {
     this._pendingCycle = null
     this.tpsSamples = []
     this.tps = null
+    this.protocol = emptyProtocol()
+    this.cookies = new Map() // cookies du serveur, conservés pendant un transfert
+    this._transfer = null // destination d'un transfert à suivre à la prochaine connexion
   }
 
   // --- Connexion -----------------------------------------------------------
@@ -103,12 +113,19 @@ class BotInstance extends EventEmitter {
     this.lastError = null
     this._connectStart = Date.now()
     const o = this.options
-    this.log.info(`Connexion à ${o.host}:${o.port} (version ${o.version || 'auto'}, auth ${o.auth})…`)
+    // Un transfert (1.20.5+) vise un autre serveur pour cette connexion seulement ; les cookies le suivent.
+    const target = this._transfer || { host: o.host, port: o.port }
+    if (!this._transfer) this.cookies.clear()
+    this._transfer = null
+    const lastTransfer = this.protocol.transfer
+    this.protocol = emptyProtocol()
+    this.protocol.transfer = lastTransfer
+    this.log.info(`Connexion à ${target.host}:${target.port} (version ${o.version || 'auto'}, auth ${o.auth})…`)
     let bot
     try {
       bot = mineflayer.createBot({
-        host: o.host,
-        port: o.port,
+        host: target.host,
+        port: target.port,
         username: o.username,
         auth: o.auth,
         password: o.password || undefined,
@@ -140,6 +157,7 @@ class BotInstance extends EventEmitter {
     bot.loadPlugin(collectBlockPlugin)
     if (this.plugins.autoArmor) bot.loadPlugin(armorManager)
     this._attach(bot)
+    this._attachProtocol(bot)
     attachPlugins(this, bot)
     this.emitState()
     return true
@@ -252,6 +270,7 @@ class BotInstance extends EventEmitter {
       if (!current()) return
       this.stats.deaths++
       this.log.warn('Le bot est mort')
+      this._marker('death')
       ev.emit('death', {})
     })
 
@@ -300,6 +319,7 @@ class BotInstance extends EventEmitter {
       const text = u.chatToText(reason)
       this.stats.kicks++
       this.lastKick = { t: Date.now(), reason: text }
+      this._marker('kick', text)
       this.log.warn(`Expulsé${loggedIn ? '' : ' pendant la connexion'} : ${explain(text)}`)
       ev.emit('kicked', { reason: text, loggedIn })
     })
@@ -314,6 +334,118 @@ class BotInstance extends EventEmitter {
     })
 
     bot.on('end', reason => this._onEnd(bot, reason))
+  }
+
+  /**
+   * Nouveautés du protocole : boîtes de dialogue (1.21.6), code de conduite (1.21.9),
+   * liens serveur et détails de rapport (1.21), transferts et cookies (1.20.5),
+   * messages de plugins.
+   */
+  _attachProtocol (bot) {
+    const client = bot._client
+    const current = () => this.bot === bot
+    const ev = this.events
+    const p = () => this.protocol
+
+    // minecraft-protocol accepte seul le code de conduite : on intercepte pour pouvoir le refuser.
+    const write = client.write.bind(client)
+    client.write = (name, params) => {
+      if (name === 'accept_code_of_conduct' && this.plugins.refuseCodeOfConduct) {
+        this.log.warn('Code de conduite refusé (réglage du bot) : le serveur devrait bloquer la connexion')
+        return
+      }
+      return write(name, params)
+    }
+
+    client.on('code_of_conduct', packet => {
+      if (!current()) return
+      p().codeOfConduct = { t: Date.now(), text: String(packet.contents || ''), accepted: !this.plugins.refuseCodeOfConduct }
+      this.log.info(`Code de conduite reçu (${p().codeOfConduct.text.length} caractères) : ${this.plugins.refuseCodeOfConduct ? 'refusé' : 'accepté'}`)
+      ev.emit('codeOfConduct', { text: p().codeOfConduct.text, accepted: p().codeOfConduct.accepted })
+      this.emitState()
+    })
+
+    client.on('show_dialog', packet => {
+      if (!current()) return
+      let dialog
+      try {
+        dialog = proto.parseDialog(packet.dialog)
+      } catch (err) {
+        dialog = { type: 'inconnu', title: 'Boîte de dialogue illisible', body: [u.errorMessage(err)], inputs: [], buttons: [] }
+      }
+      p().dialog = { t: Date.now(), ...dialog }
+      this.log.info(`Boîte de dialogue « ${dialog.title} » (${dialog.type}, ${dialog.buttons.length} bouton(s))`)
+      ev.emit('dialog', { title: dialog.title, type: dialog.type, body: dialog.body, buttons: dialog.buttons.map(b => b.label), inputs: dialog.inputs.map(i => i.key) })
+      this.emitState()
+    })
+
+    client.on('clear_dialog', () => {
+      if (!current() || !p().dialog) return
+      p().dialog = null
+      ev.emit('dialogClosed', {})
+      this.emitState()
+    })
+
+    client.on('server_links', packet => {
+      if (!current()) return
+      p().links = (packet.links || []).map(l => ({
+        label: l.hasKnownType ? proto.LINK_LABELS[l.knownType] || l.knownType : u.chatToText(proto.simplifyNbt(l.unknownType)),
+        kind: l.hasKnownType ? l.knownType : null,
+        url: l.link
+      }))
+      ev.emit('serverLinks', { links: p().links })
+    })
+
+    client.on('custom_report_details', packet => {
+      if (!current()) return
+      p().reportDetails = (packet.details || []).map(d => ({ key: d.key, value: d.value }))
+      ev.emit('reportDetails', { details: p().reportDetails })
+    })
+
+    client.on('store_cookie', packet => {
+      if (current()) this.cookies.set(packet.key, Buffer.from(packet.value || []))
+    })
+    client.on('cookie_request', packet => {
+      if (!current()) return
+      const value = this.cookies.get(packet.cookie)
+      try {
+        client.write('cookie_response', value ? { key: packet.cookie, value } : { key: packet.cookie })
+      } catch (err) {
+        this.log.debug(`Réponse au cookie ${packet.cookie} impossible : ${u.errorMessage(err)}`)
+      }
+    })
+
+    client.on('transfer', packet => {
+      if (!current()) return
+      p().transfer = { t: Date.now(), host: packet.host, port: packet.port, followed: this.plugins.followTransfers !== false }
+      this.log.info(`Transfert demandé vers ${packet.host}:${packet.port}${p().transfer.followed ? '' : ' (ignoré : réglage du bot)'}`)
+      ev.emit('transfer', { host: packet.host, port: packet.port })
+      if (p().transfer.followed) {
+        this._transfer = { host: packet.host, port: packet.port }
+        this.cycleReconnect(300)
+      }
+    })
+
+    client.on('custom_payload', packet => {
+      if (!current() || !packet || !packet.channel) return
+      const channel = packet.channel
+      if (channel === 'minecraft:register' || channel === 'REGISTER') {
+        const list = Buffer.from(packet.data || []).toString('utf8').split('\0').filter(Boolean)
+        p().channels = [...new Set([...p().channels, ...list])].slice(0, 200)
+      }
+      const info = proto.describePayload(packet.data)
+      const entry = { t: Date.now(), channel, direction: 'in', ...info }
+      p().pluginMessages.push(entry)
+      if (p().pluginMessages.length > PLUGIN_LOG) p().pluginMessages.shift()
+      ev.emit('pluginMessage', { channel, text: info.text, strings: info.strings, hex: info.hex, size: info.size })
+    })
+  }
+
+  _marker (kind, detail = null) {
+    const bot = this.bot
+    if (!bot || !bot.entity || !bot.entity.position || !bot.game) return
+    const pos = bot.entity.position
+    this.manager.addMarker({ kind, id: this.id, x: pos.x, z: pos.z, dimension: String(bot.game.dimension).replace('minecraft:', ''), detail })
   }
 
   _onEnd (bot, reason) {
@@ -546,6 +678,69 @@ class BotInstance extends EventEmitter {
     if (bot.currentWindow) bot.closeWindow(bot.currentWindow)
   }
 
+  /** Clique sur un bouton de la boîte de dialogue ouverte (index ou libellé), avec les valeurs saisies. */
+  dialogClick (button = 0, values = {}) {
+    const bot = this.requireBot()
+    const dialog = this.protocol.dialog
+    if (!dialog) throw new Error('Aucune boîte de dialogue ouverte')
+    const index = typeof button === 'number' || /^\d+$/.test(String(button))
+      ? Number(button)
+      : dialog.buttons.findIndex(b => b.label.toLowerCase() === String(button).toLowerCase())
+    const b = dialog.buttons[index]
+    if (!b) throw new Error(`Bouton introuvable : ${button}`)
+    const inputs = {}
+    for (const i of dialog.inputs) inputs[i.key] = values[i.key] !== undefined ? values[i.key] : i.initial !== null ? i.initial : ''
+    const a = b.action
+    let done = 'aucune action'
+    if (a) {
+      if (a.type === 'run_command' || a.type === 'dynamic/run_command') {
+        const cmd = a.type === 'run_command' ? a.command : proto.fillTemplate(a.template, inputs)
+        bot.chat(cmd.startsWith('/') ? cmd : `/${cmd}`)
+        done = `commande ${cmd}`
+      } else if (a.type === 'custom') {
+        bot._client.write('custom_click_action', a.payload !== null ? { id: a.id, nbt: proto.toNbt(proto.simplifyNbt(a.payload)) } : { id: a.id })
+        done = `action ${a.id}`
+      } else if (a.type === 'dynamic/custom') {
+        const payload = { ...inputs, ...(proto.simplifyNbt(a.additions) || {}) }
+        bot._client.write('custom_click_action', { id: a.id, nbt: proto.toNbt(payload) })
+        done = `action ${a.id} ${JSON.stringify(payload)}`
+      } else {
+        done = `${a.type} (non géré par un bot)`
+      }
+    }
+    this.log.info(`Dialogue « ${dialog.title} » : bouton « ${b.label} » → ${done}`)
+    if (dialog.afterAction !== 'none' && dialog.afterAction !== 'wait_for_response') this.protocol.dialog = null
+    this.emitState()
+    return { button: b.label, action: done }
+  }
+
+  /** Envoie un message de plugin ; `register` annonce d'abord le canal au serveur. */
+  sendPluginMessage (channel, data = '', format = 'text', register = false) {
+    const bot = this.requireBot()
+    if (!channel) throw new Error('Canal manquant')
+    if (register) bot._client.write('custom_payload', { channel: 'minecraft:register', data: Buffer.from(String(channel), 'utf8') })
+    const buf = proto.encodePayload(data, format)
+    bot._client.write('custom_payload', { channel: String(channel), data: buf })
+    const entry = { t: Date.now(), channel: String(channel), direction: 'out', ...proto.describePayload(buf) }
+    this.protocol.pluginMessages.push(entry)
+    if (this.protocol.pluginMessages.length > PLUGIN_LOG) this.protocol.pluginMessages.shift()
+    return { channel, size: buf.length }
+  }
+
+  protocolInfo () {
+    return { ...this.protocol, cookies: [...this.cookies.keys()] }
+  }
+
+  getChat (limit = 150) {
+    return this.chatHistory.slice(-Math.max(1, Number(limit) || 150))
+  }
+
+  trailPosition () {
+    const bot = this.bot
+    if (this.status !== 'online' || !bot || !bot.entity || !bot.entity.position || !bot.game) return null
+    return { x: bot.entity.position.x, z: bot.entity.position.z, dimension: String(bot.game.dimension).replace('minecraft:', '') }
+  }
+
   setPlugins (patch = {}) {
     for (const [key, value] of Object.entries(patch)) {
       if (key === 'authme' && typeof value === 'object') this.plugins.authme = { ...(this.plugins.authme || {}), ...value }
@@ -599,6 +794,10 @@ class BotInstance extends EventEmitter {
       lastKick: this.lastKick,
       lastError: this.lastError,
       msaCode: this.msaCode,
+      wantsOnline: !this.manualStop,
+      dialog: this.protocol.dialog ? { title: this.protocol.dialog.title, buttons: this.protocol.dialog.buttons.length } : null,
+      codeOfConduct: this.protocol.codeOfConduct ? { accepted: this.protocol.codeOfConduct.accepted } : null,
+      process: null,
       runtimes: [...this.runtimes].map(r => ({ id: r.id, graphId: r.graph.id, name: r.graph.name, status: r.status }))
     }
   }

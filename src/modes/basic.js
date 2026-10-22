@@ -81,23 +81,83 @@ const wander = {
     { key: 'minPause', label: 'Pause min (ms)', type: 'number', default: 1000 },
     { key: 'maxPause', label: 'Pause max (ms)', type: 'number', default: 5000 },
     { key: 'sprint', label: 'Sprinter', type: 'boolean', default: false },
-    { key: 'canDig', label: 'Peut casser des blocs', type: 'boolean', default: false }
+    { key: 'canDig', label: 'Peut casser des blocs', type: 'boolean', default: false },
+    { key: 'unstuck', label: 'Si le bot est coincé', type: 'select', default: 'auto', options: [
+      { value: 'auto', label: 'Se dégager, puis téléportation par RCON' },
+      { value: 'walk', label: 'Se dégager seulement (sauts, pas)' },
+      { value: 'none', label: 'Ne rien faire' }
+    ] }
   ],
   start (ctx) {
-    const { radius, minPause, maxPause, sprint, canDig } = ctx.options
-    const center = ctx.bot.entity.position.clone()
+    const { radius, minPause, maxPause, sprint, canDig, unstuck } = ctx.options
+    const bot = ctx.bot
+    let center = bot.entity.position.clone()
     ctx.movements({ sprint, canDig })
     let failures = 0
+    let stuckSince = null
+    let stuckAt = null
     ctx.loop(async () => {
-      const x = center.x + randomBetween(-radius, radius)
-      const z = center.z + randomBetween(-radius, radius)
-      if (await ctx.goto(new ctx.goals.GoalNearXZ(x, z, 1), 30000)) {
+      // Après un échec, on vise plus près de la position actuelle : un but trop loin est souvent inatteignable.
+      const near = failures > 0
+      const origin = near ? bot.entity.position : center
+      const r = near ? Math.max(4, radius / 2) : radius
+      const x = origin.x + randomBetween(-r, r)
+      const z = origin.z + randomBetween(-r, r)
+      const reached = await ctx.goto(new ctx.goals.GoalNearXZ(x, z, 1), 30000)
+      // atteindre un point au fond du trou ne compte pas : il faut s'être éloigné de l'endroit du blocage
+      const escaped = reached && (!stuckAt || bot.entity.position.distanceTo(stuckAt) > 4)
+      if (escaped) {
+        if (stuckSince) ctx.log.info(`Promeneur : débloqué après ${failures} essai(s) en ${Math.round((Date.now() - stuckSince) / 1000)} s`)
         failures = 0
-      } else if (++failures % 5 === 0) {
-        ctx.log.warn(`Promeneur : ${failures} destinations inaccessibles d'affilée (bot coincé ?)`)
+        stuckSince = null
+        stuckAt = null
+      } else {
+        failures++
+        if (failures === 3) {
+          stuckSince = Date.now()
+          stuckAt = bot.entity.position.clone()
+          const p = vecToObj(bot.entity.position, 0)
+          ctx.log.warn(`Promeneur : coincé en ${p.x} ${p.y} ${p.z}${unstuck === 'none' ? '' : ', tentative de déblocage'}`)
+          ctx.instance._marker('stuck', `${failures} destinations inaccessibles`)
+        }
+        if (failures >= 3 && unstuck !== 'none') {
+          if (failures % 3 === 0) await stepOut(ctx)
+          if (unstuck === 'auto' && failures % 9 === 0) {
+            const moved = await teleportOut(ctx, center, radius)
+            if (moved) center = bot.entity.position.clone()
+          }
+        }
       }
-      await ctx.sleep(randomBetween(minPause, Math.max(minPause, maxPause)) + Math.min(failures, 10) * 500)
+      await ctx.sleep(randomBetween(minPause, Math.max(minPause, maxPause)) + Math.min(failures, 10) * 300)
     })
+  }
+}
+
+/** Se dégager à la main : regard au hasard, pas en avant en sautant (sort d'un trou peu profond). */
+async function stepOut (ctx) {
+  const bot = ctx.bot
+  await bot.look(Math.random() * Math.PI * 2, 0, true)
+  bot.setControlState('forward', true)
+  bot.setControlState('jump', true)
+  try {
+    await ctx.sleep(1200)
+  } finally {
+    bot.setControlState('forward', false)
+    bot.setControlState('jump', false)
+  }
+}
+
+/** Dernier recours : /spreadplayers par RCON place le bot sur une surface sûre de la zone. */
+async function teleportOut (ctx, center, radius) {
+  const bot = ctx.bot
+  try {
+    const res = await ctx.instance.manager.server.runRcon(`spreadplayers ${Math.round(center.x)} ${Math.round(center.z)} 0 ${Math.max(8, Math.round(radius))} false ${bot.username}`)
+    ctx.log.info(`Promeneur : téléporté par RCON pour le débloquer (${res || 'ok'})`)
+    await ctx.sleep(1500)
+    return true
+  } catch (err) {
+    ctx.log.debug(`Promeneur : pas de téléportation (${err.message})`)
+    return false
   }
 }
 

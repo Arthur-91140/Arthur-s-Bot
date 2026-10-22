@@ -69,9 +69,8 @@ test('traces : enregistrées sur disque et rechargées', () => {
 
 test('traces : le gestionnaire relève les bots en jeu', () => {
   const { manager, dir } = createTestManager()
-  const fakeBot = { entity: { position: { x: 1, y: 64, z: 2 } }, game: { dimension: 'minecraft:overworld' } }
-  manager.bots.set('A', { id: 'A', status: 'online', bot: fakeBot })
-  manager.bots.set('B', { id: 'B', status: 'offline', bot: null })
+  manager.bots.set('A', { id: 'A', status: 'online', trailPosition: () => ({ x: 1, z: 2, dimension: 'overworld' }) })
+  manager.bots.set('B', { id: 'B', status: 'offline', trailPosition: () => null })
   const seen = []
   manager.on('trails', c => seen.push(...c))
   manager.sampleTrails(1000)
@@ -84,5 +83,25 @@ test('traces : le gestionnaire relève les bots en jeu', () => {
   assert.deepStrictEqual(cleared, [null])
   manager.bots.clear()
   manager.shutdown()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('repères : ajout, filtrage, effacement par bot et enregistrement', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arthur-bot-markers-'))
+  const file = path.join(dir, 'trails.json')
+  const store = new TrailStore({ file, keepMinutes: 10 })
+  const now = Date.now()
+  assert.strictEqual(store.addMarker({ kind: 'inconnu', id: 'A', x: 0, z: 0 }), null)
+  store.addMarker({ kind: 'death', id: 'A', x: 1.234, z: 2, dimension: 'overworld', t: now })
+  store.addMarker({ kind: 'stuck', id: 'B', x: 5, z: 5, t: now })
+  store.addMarker({ kind: 'kick', id: 'A', x: 9, z: 9, t: now - 20 * MIN })
+  assert.deepStrictEqual(store.markersSince(5).map(m => m.kind), ['death', 'stuck'])
+  assert.strictEqual(store.markers[0].x, 1.2)
+  store.prune(now)
+  assert.strictEqual(store.markers.length, 2, 'les repères trop anciens disparaissent')
+  store.save()
+  assert.strictEqual(new TrailStore({ file, keepMinutes: 10 }).markers.length, 2)
+  store.clear(['A'])
+  assert.deepStrictEqual(store.markers.map(m => m.id), ['B'])
   fs.rmSync(dir, { recursive: true, force: true })
 })

@@ -12,7 +12,7 @@ function register (def) {
   registry.set(def.name, { options: [], category: 'Divers', ...def })
 }
 
-for (const file of ['./basic', './combat', './world', './testing']) {
+for (const file of ['./basic', './combat', './world', './testing', './load']) {
   for (const def of require(file)) register(def)
 }
 

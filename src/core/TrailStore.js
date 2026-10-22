@@ -5,6 +5,8 @@ const path = require('path')
 
 const JUMP = 32 // au-delà de 32 blocs d'un coup, c'est une téléportation : on coupe la trace
 const MIN_STEP = 0.35 // en dessous, le bot n'a pas vraiment bougé
+const MAX_MARKERS = 5000
+const MARKER_KINDS = new Set(['death', 'stuck', 'kick'])
 
 const round1 = n => Math.round(n * 10) / 10
 
@@ -15,6 +17,8 @@ const round1 = n => Math.round(n * 10) / 10
  *
  * Une trace = { dim, dist, points } ; un point = [x, z, t] et null marque une
  * coupure (téléportation, déconnexion).
+ *
+ * Les repères (morts, blocages, expulsions) alimentent la carte de chaleur.
  */
 class TrailStore {
   constructor ({ keepMinutes = 60, file = null } = {}) {
@@ -23,6 +27,7 @@ class TrailStore {
     this.maxPoints = Math.ceil(this.keepMs / 1000) + 60
     this.file = file
     this.trails = new Map()
+    this.markers = [] // { t, kind, id, x, z, dim, detail }
     this.dirty = false
     if (file) this.load()
   }
@@ -72,9 +77,30 @@ class TrailStore {
   }
 
   clear (ids = null) {
-    if (!ids) this.trails.clear()
-    else for (const id of ids) this.trails.delete(id)
+    if (!ids) {
+      this.trails.clear()
+      this.markers = []
+    } else {
+      for (const id of ids) this.trails.delete(id)
+      const set = new Set(ids)
+      this.markers = this.markers.filter(m => !set.has(m.id))
+    }
     this.dirty = true
+  }
+
+  /** Ajoute un repère (mort, blocage, expulsion) ; renvoie le repère enregistré. */
+  addMarker ({ kind, id, x, z, dimension, dim, detail = null, t = Date.now() } = {}) {
+    if (!MARKER_KINDS.has(kind) || !Number.isFinite(x) || !Number.isFinite(z)) return null
+    const m = { t, kind, id: String(id || ''), x: round1(x), z: round1(z), dim: dimension || dim || 'overworld', detail: detail ? String(detail).slice(0, 200) : null }
+    this.markers.push(m)
+    if (this.markers.length > MAX_MARKERS) this.markers.splice(0, this.markers.length - MAX_MARKERS)
+    this.dirty = true
+    return m
+  }
+
+  markersSince (minutes = null) {
+    const since = minutes ? Date.now() - Number(minutes) * 60000 : 0
+    return this.markers.filter(m => m.t >= since)
   }
 
   /** Oublie les points trop anciens et les traces vides. */
@@ -90,6 +116,9 @@ class TrailStore {
       }
       if (!pts.length && !trail.live) this.trails.delete(id)
     }
+    const before = this.markers.length
+    this.markers = this.markers.filter(m => m.t >= since)
+    if (this.markers.length !== before) this.dirty = true
   }
 
   /** Traces des `minutes` dernières minutes, par bot. */
@@ -112,6 +141,7 @@ class TrailStore {
         if (!t || !Array.isArray(t.points)) continue
         this.trails.set(id, { dim: t.dim, dist: Number(t.dist) || 0, points: t.points, live: false })
       }
+      if (Array.isArray(data.markers)) this.markers = data.markers.filter(m => m && MARKER_KINDS.has(m.kind))
       this.prune()
       this.dirty = false
     } catch (err) {
@@ -122,7 +152,7 @@ class TrailStore {
   /** Écrit les traces sur disque si elles ont changé (écriture atomique). */
   save () {
     if (!this.file || !this.dirty) return false
-    const data = { savedAt: Date.now(), keepMinutes: this.keepMinutes, trails: this.snapshot() }
+    const data = { savedAt: Date.now(), keepMinutes: this.keepMinutes, trails: this.snapshot(), markers: this.markers }
     fs.mkdirSync(path.dirname(this.file), { recursive: true })
     const tmp = `${this.file}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(data))

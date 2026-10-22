@@ -25,6 +25,8 @@ const CATEGORIES = [
   { name: 'Inventaire & GUI', color: '#f9801d' },
   { name: 'Monde', color: '#169c9c' },
   { name: 'Tests', color: '#c74ebd' },
+  { name: 'Serveur', color: '#3c44aa' },
+  { name: 'Protocole', color: '#835432' },
   { name: 'Divers', color: '#9d9d97' }
 ]
 
@@ -48,7 +50,7 @@ function register (def) {
   registry.set(full.type, full)
 }
 
-for (const file of ['events', 'flow', 'variables', 'movement', 'actions', 'inventory', 'world', 'testing', 'misc']) {
+for (const file of ['events', 'flow', 'variables', 'movement', 'actions', 'inventory', 'world', 'testing', 'server', 'protocol', 'misc']) {
   for (const def of require(`./nodes/${file}`)) register(def)
 }
 

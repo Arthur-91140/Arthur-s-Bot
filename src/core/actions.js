@@ -47,12 +47,17 @@ const ACTIONS = {
   trigger: (b, p) => b.manager.trigger(required(p.name, 'name'), p.data, [b.id]),
   inventory: b => b.getInventory(),
   window: b => b.getWindow(),
-  state: b => b.getState()
+  state: b => b.getState(),
+  dialog: (b, p) => b.dialogClick(p.button ?? 0, p.values || {}),
+  pluginMessage: (b, p) => b.sendPluginMessage(required(p.channel, 'channel'), p.data ?? '', p.format || 'text', !!p.register),
+  protocol: b => b.protocolInfo()
 }
 
 async function runAction (instance, action, payload = {}) {
   const fn = ACTIONS[action]
   if (!fn) throw new Error(`Action inconnue : ${action}`)
+  // Bot hébergé par un processus ouvrier : l'action y est exécutée.
+  if (instance.remote) return instance.runAction(action, payload)
   const result = await fn(instance, payload)
   return result === undefined ? { ok: true } : result
 }

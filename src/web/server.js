@@ -25,7 +25,8 @@ const BOT_FUNCTIONS = [
   'hasItem(nom, n)', 'countItem(nom)', 'blockAt(x, y, z)', 'blockBelow()', 'distanceTo(x, y, z)',
   'nearestPlayer(dist)', 'nearestEntity(filtre, dist)', 'entityCount(filtre, dist)', 'playerOnline(nom)',
   'players()', 'playerPos(nom)', 'findBlock(nom, dist)', 'inventoryFull()', 'isManaged(nom)', 'botNames()',
-  'lastMessage()', 'online()'
+  'lastMessage()', 'online()', 'serverPlayers()', 'seenByServer(nom)',
+  'dialog()', 'serverLinks()', 'reportDetails()', 'codeOfConduct()'
 ]
 
 function safeEqual (a, b) {
@@ -100,35 +101,85 @@ function startWebServer ({ manager, logger, config }) {
     return { created: [b.id], errors: [] }
   }))
 
-  app.get('/api/bots/:id', route(req => {
+  app.get('/api/bots/:id', route(async req => {
     const b = manager.get(req.params.id)
     if (!b) throw notFound('Bot introuvable')
-    return { ...b.getState(), chat: b.chatHistory.slice(-150) }
+    return { ...b.getState(), chat: await b.getChat(150) }
   }))
 
   app.delete('/api/bots/:id', route(req => {
     if (!manager.removeBot(req.params.id)) throw notFound('Bot introuvable')
   }))
 
-  app.get('/api/bots/:id/chat', route(req => manager.require(req.params.id).chatHistory.slice(-Number(req.query.limit || 150))))
+  app.get('/api/bots/:id/chat', route(req => manager.require(req.params.id).getChat(Number(req.query.limit || 150))))
   app.get('/api/bots/:id/inventory', route(req => manager.require(req.params.id).getInventory()))
+  app.get('/api/bots/:id/protocol', route(req => {
+    const b = manager.require(req.params.id)
+    return b.remote ? b.call('protocol') : b.protocolInfo()
+  }))
   app.get('/api/bots/:id/window', route(req => manager.require(req.params.id).getWindow()))
+  // --- Outils du serveur : RCON et protocole de gestion (1.21.9+) -------------------
+  app.get('/api/server-tools', route(() => manager.server.state()))
+  app.put('/api/server-tools', route(req => manager.server.update(req.body || {})))
+  app.post('/api/rcon', route(async req => {
+    const command = String((req.body && req.body.command) || '').trim()
+    if (!command) throw new Error('Commande vide')
+    return { command, response: await manager.server.runRcon(command) }
+  }))
+  app.post('/api/management/call', route(async req => {
+    const { method, params } = req.body || {}
+    if (!method) throw new Error('Méthode manquante')
+    return { result: await manager.server.manage(String(method), params === undefined ? [] : params) }
+  }))
+
+  // --- Campagnes ----------------------------------------------------------------
+  const campaigns = manager.campaigns
+  app.get('/api/campaigns', route(() => campaigns.store.list()))
+  app.get('/api/campaigns/active', route(() => campaigns.state()))
+  app.get('/api/campaigns/:id', route(req => {
+    const c = campaigns.store.get(req.params.id)
+    if (!c) throw notFound('Campagne introuvable')
+    return c
+  }))
+  const saveCampaign = req => {
+    const body = { ...(req.body || {}) }
+    if (req.params.id) body.id = req.params.id
+    const saved = campaigns.store.save(body)
+    io.emit('campaigns')
+    return saved
+  }
+  app.post('/api/campaigns', route(saveCampaign))
+  app.put('/api/campaigns/:id', route(saveCampaign))
+  app.delete('/api/campaigns/:id', route(req => {
+    if (!campaigns.store.remove(req.params.id)) throw notFound('Campagne introuvable')
+    io.emit('campaigns')
+  }))
+  app.post('/api/campaigns/:id/run', route(req => campaigns.start(req.params.id, { server: (req.body || {}).server }).public()))
+  app.post('/api/campaigns/stop', route(() => ({ stopped: campaigns.stop() })))
+
   // --- Traces des déplacements ----------------------------------------------------
   app.get('/api/trails', route(req => ({
     keepMinutes: manager.trails.keepMinutes,
     trails: manager.trails.snapshot({
       minutes: Number(req.query.minutes) || null,
       ids: req.query.bots ? String(req.query.bots).split(',') : null
-    })
+    }),
+    markers: manager.trails.markersSince(Number(req.query.minutes) || null)
   })))
   app.delete('/api/trails', route(req => {
     manager.clearTrails(req.query.bots ? String(req.query.bots).split(',') : null)
   }))
 
-  app.get('/api/bots/:id/view', route(req => snapshot(manager.require(req.params.id), {
-    radius: req.query.radius,
-    height: req.query.height,
-    blocks: req.query.blocks !== '0'
+  app.get('/api/bots/:id/view', route(req => {
+    const b = manager.require(req.params.id)
+    const opts = { radius: req.query.radius, height: req.query.height, blocks: req.query.blocks !== '0' }
+    return b.remote ? b.call('view', [opts]) : snapshot(b, opts)
+  }))
+
+  // --- Santé du programme et processus ouvriers --------------------------------------
+  app.get('/api/health', route(() => ({
+    health: manager.health,
+    workers: manager.pool ? { enabled: manager.pool.enabled, botsPerProcess: manager.pool.botsPerProcess, maxProcesses: manager.pool.maxProcesses, processes: manager.pool.info() } : null
   })))
 
   app.post('/api/bots/:id/:action', route(req => {
@@ -176,8 +227,8 @@ function startWebServer ({ manager, logger, config }) {
   }))
   app.get('/api/runtimes', route(() => manager.listRuntimes()))
   app.post('/api/runtimes/stop', route(req => ({ stopped: manager.stopRuntimes(req.body || {}) })))
-  app.post('/api/runtimes/:id/stop', route(req => {
-    if (!manager.stopRuntime(req.params.id)) throw notFound('Exécution introuvable')
+  app.post('/api/runtimes/:id/stop', route(async req => {
+    if (!(await manager.stopRuntime(req.params.id))) throw notFound('Exécution introuvable')
   }))
   app.post('/api/trigger', route(req => {
     const { name, data, targets } = req.body || {}
@@ -211,7 +262,7 @@ function startWebServer ({ manager, logger, config }) {
 
   // --- Temps réel ---------------------------------------------------------------
   // Les évènements fréquents sont regroupés pour ne pas saturer le navigateur.
-  const batches = { logs: [], chats: [], traces: [] }
+  const batches = { logs: [], chats: [], traces: [], serverEvents: [], markers: [] }
   const push = (key, item, max = 500) => {
     const list = batches[key]
     list.push(item)
@@ -224,6 +275,19 @@ function startWebServer ({ manager, logger, config }) {
   const onRuntime = r => io.emit('runtime', r)
   const onTrails = changes => { if (io.engine.clientsCount) io.emit('trails', changes) }
   const onTrailsCleared = ids => io.emit('trailsCleared', ids)
+  let serverStateTimer = null
+  const onServerState = () => {
+    // regroupé : le protocole de gestion peut envoyer beaucoup de notifications d'un coup
+    if (serverStateTimer) return
+    serverStateTimer = setTimeout(() => {
+      serverStateTimer = null
+      io.emit('serverTools', manager.server.state())
+    }, 300)
+  }
+  const onServerNotification = n => { if (n.t) push('serverEvents', n, 200) }
+  const onHealth = h => { if (io.engine.clientsCount) io.emit('health', h) }
+  const onCampaign = c => io.emit('campaign', c)
+  const onMarker = m => push('markers', m, 200)
   const onBots = () => { dirty = true }
   let dirty = true
   logger.on('line', onLine)
@@ -234,6 +298,11 @@ function startWebServer ({ manager, logger, config }) {
   manager.on('runtime', onRuntime)
   manager.on('trails', onTrails)
   manager.on('trailsCleared', onTrailsCleared)
+  manager.server.on('state', onServerState)
+  manager.server.on('notification', onServerNotification)
+  manager.on('health', onHealth)
+  manager.on('marker', onMarker)
+  manager.campaigns.on('update', onCampaign)
   manager.on('botAdded', onBots)
   manager.on('botRemoved', onBots)
   manager.on('botChanged', onBots)
@@ -243,6 +312,8 @@ function startWebServer ({ manager, logger, config }) {
       batches.logs = []
       batches.chats = []
       batches.traces = []
+      batches.serverEvents = []
+      batches.markers = []
       return
     }
     for (const key of Object.keys(batches)) {
@@ -265,6 +336,9 @@ function startWebServer ({ manager, logger, config }) {
 
   io.on('connection', socket => {
     socket.emit('bots', manager.states())
+    socket.emit('serverTools', manager.server.state())
+    if (manager.health) socket.emit('health', manager.health)
+    socket.emit('campaign', manager.campaigns.state())
   })
 
   return new Promise((resolve, reject) => {
@@ -289,6 +363,12 @@ function startWebServer ({ manager, logger, config }) {
           manager.removeListener('runtime', onRuntime)
           manager.removeListener('trails', onTrails)
           manager.removeListener('trailsCleared', onTrailsCleared)
+          manager.server.removeListener('state', onServerState)
+          manager.server.removeListener('notification', onServerNotification)
+          manager.removeListener('health', onHealth)
+          manager.removeListener('marker', onMarker)
+          manager.campaigns.removeListener('update', onCampaign)
+          clearTimeout(serverStateTimer)
           io.close()
           server.close()
         }

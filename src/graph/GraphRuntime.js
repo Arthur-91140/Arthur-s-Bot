@@ -135,12 +135,23 @@ function botFunctions (instance) {
       return bot ? bot.inventory.emptySlotCount() === 0 : false
     },
     isManaged: name => manager.isManaged(name),
-    botNames: () => manager.list().map(b => b.username),
+    botNames: () => manager.list().map(b => b.id),
+    // Protocole de gestion (1.21.9+) : null si indisponible
+    serverPlayers: () => manager.server.serverPlayers(),
+    seenByServer: (name = instance.id) => {
+      const list = manager.server.serverPlayers()
+      return list ? list.includes(name) : null
+    },
     lastMessage: () => {
       const last = [...instance.chatHistory].reverse().find(m => m.type !== 'self')
       return last ? last.message : null
     },
-    online: () => instance.status === 'online'
+    online: () => instance.status === 'online',
+    // Nouveautés du protocole (dernière valeur reçue sur cette connexion)
+    dialog: () => instance.protocol.dialog,
+    serverLinks: () => instance.protocol.links,
+    reportDetails: () => instance.protocol.reportDetails,
+    codeOfConduct: () => (instance.protocol.codeOfConduct ? instance.protocol.codeOfConduct.text : null)
   }
 }
 
@@ -220,8 +231,8 @@ class Flow {
  * s'abonnent aux évènements de l'instance (qui survivent aux reconnexions).
  */
 class GraphRuntime {
-  constructor ({ manager, instance, graph }) {
-    this.id = `run${Date.now().toString(36)}${(++seq).toString(36)}`
+  constructor ({ manager, instance, graph, id = null }) {
+    this.id = id || `run${Date.now().toString(36)}${(++seq).toString(36)}`
     this.manager = manager
     this.instance = instance
     this.graph = JSON.parse(JSON.stringify(graph))

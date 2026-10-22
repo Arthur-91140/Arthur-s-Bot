@@ -53,7 +53,12 @@ const EVENTS = [
   { value: 'title', label: 'Titre' },
   { value: 'actionbar', label: 'Barre d\'action' },
   { value: 'playerJoined', label: 'Joueur connecté' },
-  { value: 'playerLeft', label: 'Joueur déconnecté' }
+  { value: 'playerLeft', label: 'Joueur déconnecté' },
+  { value: 'dialog', label: 'Boîte de dialogue (1.21.6+)' },
+  { value: 'codeOfConduct', label: 'Code de conduite (1.21.9+)' },
+  { value: 'transfer', label: 'Transfert (1.20.5+)' },
+  { value: 'serverLinks', label: 'Liens du serveur (1.21+)' },
+  { value: 'pluginMessage', label: 'Message de plugin' }
 ]
 
 module.exports = [
