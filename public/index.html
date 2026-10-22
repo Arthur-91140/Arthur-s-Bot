@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arthur's Bot</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' shape-rendering='crispEdges'%3E%3Crect x='1' y='1' width='10' height='10' fill='%23000'/%3E%3Crect x='2' y='2' width='8' height='8' fill='%238b8b8b'/%3E%3Crect x='3' y='4' width='2' height='2' fill='%2355ffff'/%3E%3Crect x='7' y='4' width='2' height='2' fill='%2355ffff'/%3E%3Crect x='4' y='7' width='4' height='1' fill='%23373737'/%3E%3Crect x='5' y='0' width='2' height='1' fill='%23ff3b1f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-sans-condensed/400.css">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-sans-condensed/600.css">
+  <link rel="stylesheet" href="vendor/fonts/ibm-plex-mono/400.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><svg class="logo" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="10" height="10" fill="#000"/><rect x="2" y="2" width="8" height="8" fill="#8b8b8b"/><rect x="2" y="2" width="8" height="1" fill="#c6c6c6"/><rect x="2" y="9" width="8" height="1" fill="#555"/><rect x="3" y="4" width="2" height="2" fill="#55ffff"/><rect x="7" y="4" width="2" height="2" fill="#55ffff"/><rect x="4" y="7" width="4" height="1" fill="#373737"/><rect x="5" y="0" width="2" height="1" fill="#ff3b1f"/></svg><span>Arthur's Bot</span></div>
+    <nav class="tabs" aria-label="Sections">
+      <button data-tab="dashboard" class="active"><span class="key">1</span>Bots</button>
+      <button data-tab="editor"><span class="key">2</span>Comportements</button>
+      <button data-tab="campaigns"><span class="key">3</span>Campagnes</button>
+      <button data-tab="reports"><span class="key">4</span>Rapports</button>
+      <button data-tab="logs"><span class="key">5</span>Journal</button>
+      <button data-tab="help"><span class="key">6</span>Aide</button>
+    </nav>
+    <div class="top-status">
+      <span id="top-summary"></span><span id="conn-status" class="led conn" title="Connexion au serveur"></span>
+      <button id="monitor-btn" class="btn small" title="Écran de contrôle plein écran (M)">Écran de contrôle</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Bots -->
+    <section id="tab-dashboard" class="tab active">
+      <div class="dash">
+        <div class="dash-main">
+          <div id="server-entry" class="server-entry panel"></div>
+          <div id="kpis" class="kpis"></div>
+
+          <div class="panel roster-panel">
+            <div class="roster-toolbar">
+              <label class="check select-all"><input id="select-all" type="checkbox"><span id="bots-count">0 bot</span></label>
+              <div id="status-filters" class="seg"></div>
+              <input id="bot-search" type="search" class="grow" placeholder="Filtrer par nom ou mode…">
+              <button id="new-bot-btn" class="btn primary" title="Nouveau bot (N)">+ Nouveau bot</button>
+            </div>
+            <div class="bulk-actions">
+              <span id="bulk-target" class="bulk-target"></span>
+              <button class="btn small success" data-bulk="connect">Connecter</button>
+              <button class="btn small" data-bulk="disconnect">Déconnecter</button>
+              <button class="btn small" data-bulk="reconnect">Reconnecter</button>
+              <button class="btn small" data-bulk="stop">Stop</button>
+              <span class="sep"></span>
+              <button class="btn small" data-menu="mode">Mode ▾</button>
+              <button class="btn small" data-menu="graph">Graphe ▾</button>
+              <button class="btn small" data-menu="signal">Signal ▾</button>
+              <span class="sep"></span>
+              <button class="btn small danger-ghost" data-bulk="remove">Supprimer</button>
+            </div>
+            <div id="bots-grid" class="roster-wrap"></div>
+          </div>
+
+          <form id="chatbar" class="chatbar" autocomplete="off">
+            <span id="chat-target" class="chat-target"></span>
+            <input id="bulk-chat" type="text" placeholder="T pour écrire, / pour une commande — envoyé par les bots ciblés">
+            <button class="btn small primary" type="submit">Envoyer</button>
+          </form>
+        </div>
+
+        <aside class="dash-side">
+          <div class="panel map-panel">
+            <div class="panel-title map-title">
+              <h3 class="grow">Carte</h3>
+              <select id="map-dim" class="small" title="Dimension"></select>
+              <button id="trail-clear" class="btn small" title="Effacer les traces et les repères (pour toutes les fenêtres)">Effacer</button>
+            </div>
+            <div class="map-controls">
+              <select id="map-layer" class="small" title="Ce que montre la carte">
+                <option value="trails">Traces</option>
+                <option value="presence">Chaleur : présence</option>
+                <option value="death">Chaleur : morts</option>
+                <option value="stuck">Chaleur : blocages</option>
+                <option value="kick">Chaleur : expulsions</option>
+              </select>
+              <select id="trail-minutes" class="small" title="Période affichée">
+                <option value="0">Masquer</option>
+                <option value="1">1 min</option>
+                <option value="5">5 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="60">1 h</option>
+              </select>
+            </div>
+            <div id="map" class="map inset"></div>
+            <div id="map-legend" class="map-legend"></div>
+          </div>
+          <div class="panel feed-panel">
+            <div class="panel-title"><h3 class="grow">Évènements</h3><button id="feed-clear" class="btn small">Vider</button></div>
+            <div id="feed" class="feed"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Éditeur -->
+    <section id="tab-editor" class="tab"><div id="editor-root" class="editor-root"></div></section>
+
+    <!-- Campagnes -->
+    <section id="tab-campaigns" class="tab">
+      <div class="campaigns">
+        <div class="panel report-side">
+          <div class="row panel-title"><h3 class="grow">Campagnes</h3><button id="campaign-new" class="btn small">+ Nouvelle</button></div>
+          <div id="campaign-list"></div>
+          <p class="muted tiny">Fichiers JSON du dossier campaigns/, à versionner avec vos tests.</p>
+        </div>
+        <div class="campaign-main">
+          <div id="campaign-run" class="panel camp-run" hidden></div>
+          <div id="campaign-editor" class="panel campaign-editor"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rapports -->
+    <section id="tab-reports" class="tab">
+      <div class="reports">
+        <div class="panel report-side">
+          <div class="row panel-title"><h3 class="grow">Rapports</h3><button id="reports-clear" class="btn small danger-ghost">Effacer les terminés</button></div>
+          <div id="report-summary" class="report-tiles"></div>
+          <div id="report-list"></div>
+        </div>
+        <div id="report-detail" class="panel report-detail"></div>
+      </div>
+    </section>
+
+    <!-- Journal -->
+    <section id="tab-logs" class="tab">
+      <div class="panel logs">
+        <div class="row wrap">
+          <select id="log-source"></select>
+          <div id="log-levels" class="seg"></div>
+          <input id="log-search" type="search" placeholder="Filtrer…" class="grow">
+          <label class="check"><input id="log-pause" type="checkbox"><span>Pause</span></label>
+          <button id="log-clear" class="btn small">Vider l'affichage</button>
+        </div>
+        <div id="log-list" class="log-list"></div>
+      </div>
+    </section>
+
+    <!-- Aide -->
+    <section id="tab-help" class="tab"><div id="help-content" class="panel help"></div></section>
+  </main>
+
+  <!-- Écran de contrôle (second écran, tests de charge) -->
+  <div id="monitor" class="monitor" hidden>
+    <header class="mon-head">
+      <div class="brand"><svg class="logo" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="10" height="10" fill="#000"/><rect x="2" y="2" width="8" height="8" fill="#8b8b8b"/><rect x="2" y="2" width="8" height="1" fill="#c6c6c6"/><rect x="2" y="9" width="8" height="1" fill="#555"/><rect x="3" y="4" width="2" height="2" fill="#55ffff"/><rect x="7" y="4" width="2" height="2" fill="#55ffff"/><rect x="4" y="7" width="4" height="1" fill="#373737"/><rect x="5" y="0" width="2" height="1" fill="#ff3b1f"/></svg><span>Écran de contrôle</span></div>
+      <span id="mon-server" class="mon-server"></span>
+      <div id="mon-alerts" class="mon-alerts"></div>
+      <span id="mon-clock" class="mon-clock"></span>
+      <button id="mon-window" class="btn small" title="Ouvrir dans une nouvelle fenêtre (second écran)">Nouvelle fenêtre</button>
+      <button id="mon-full" class="btn small">Plein écran</button>
+      <button id="mon-exit" class="btn small" title="Quitter (Échap)">Quitter</button>
+    </header>
+    <div id="mon-kpis" class="mon-kpis"></div>
+    <div class="mon-grid">
+      <div class="panel mon-map-panel">
+        <div class="panel-title"><h3 class="grow">Carte</h3><span id="mon-map-legend" class="map-legend"></span></div>
+        <div id="mon-map" class="map inset"></div>
+      </div>
+      <div class="panel mon-wall-panel">
+        <div class="panel-title"><h3 class="grow">Bots</h3><span id="mon-wall-sum" class="muted small"></span></div>
+        <div id="mon-wall" class="mon-wall"></div>
+      </div>
+      <div class="panel mon-feed-panel">
+        <div class="panel-title"><h3 class="grow">Évènements</h3></div>
+        <div id="mon-feed" class="feed"></div>
+      </div>
+      <div class="panel mon-charts">
+        <div class="mon-chart"><div class="kpi-label">TPS — 10 dernières minutes</div><div id="mon-chart-tps" class="mon-chart-box"></div></div>
+        <div class="mon-chart"><div class="kpi-label">Bots en jeu — 10 dernières minutes</div><div id="mon-chart-online" class="mon-chart-box"></div></div>
+        <div class="mon-chart"><div class="kpi-label">Ping moyen — 10 dernières minutes</div><div id="mon-chart-ping" class="mon-chart-box"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <aside id="drawer" class="drawer hidden">
+    <div class="drawer-head"></div>
+    <div class="drawer-stats"></div>
+    <div class="drawer-tabs"></div>
+    <div class="drawer-body"></div>
+  </aside>
+
+  <dialog id="server-dialog" class="screen">
+    <form id="server-form" autocomplete="off">
+      <h2 class="screen-title">Modifier le serveur</h2>
+      <div class="field"><label for="srv-host">Adresse du serveur</label><input id="srv-host" type="text" placeholder="localhost ou play.exemple.fr"></div>
+      <div class="row">
+        <div class="field w120"><label for="srv-port">Port</label><input id="srv-port" type="number" placeholder="25565"></div>
+        <div class="field grow"><label for="srv-version">Version des bots</label><select id="srv-version"></select></div>
+      </div>
+      <div id="srv-test-result"></div>
+      <div class="screen-actions">
+        <button class="btn" type="button" id="srv-test">Tester</button>
+        <span class="grow"></span>
+        <button class="btn" type="button" id="srv-cancel">Annuler</button>
+        <button class="btn primary" type="submit" id="srv-save">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="new-bot-dialog" class="screen">
+    <form id="create-form" autocomplete="off">
+      <h2 class="screen-title">Nouveaux bots</h2>
+      <p class="muted small" id="create-server"></p>
+      <div class="row">
+        <div class="field grow"><label for="c-username">Pseudo ou motif</label><input id="c-username" name="username" type="text" placeholder="Testeur ou Bot_{i}"></div>
+        <div class="field w90"><label for="c-count">Nombre</label><input id="c-count" name="count" type="number" min="1" max="500" value="1"></div>
+      </div>
+      <div class="row">
+        <div class="field grow"><label for="c-delay">Délai entre connexions (ms)</label><input id="c-delay" name="joinDelay" type="number" min="0" step="100"></div>
+        <div class="field grow"><label for="c-auth">Authentification</label>
+          <select id="c-auth" name="auth">
+            <option value="offline">Hors ligne</option>
+            <option value="microsoft">Microsoft</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field grow"><label for="create-mode">Mode initial</label><select id="create-mode" name="mode"></select></div>
+        <div class="field grow"><label for="create-graph">Comportement</label><select id="create-graph" name="graph"></select></div>
+      </div>
+      <details class="options">
+        <summary>Options avancées</summary>
+        <div class="options-grid">
+          <label class="check"><input type="checkbox" name="autoReconnect"><span>Reconnexion automatique</span></label>
+          <label class="check"><input type="checkbox" name="autoRespawn"><span>Réapparition automatique</span></label>
+          <label class="check"><input type="checkbox" name="autoEat"><span>Manger automatiquement</span></label>
+          <label class="check"><input type="checkbox" name="autoArmor"><span>Équiper l'armure ramassée</span></label>
+          <label class="check"><input type="checkbox" name="acceptResourcePack"><span>Accepter le pack de ressources</span></label>
+          <label class="check"><input type="checkbox" name="authme"><span>AuthMe automatique</span></label>
+          <label class="check"><input type="checkbox" name="followTransfers"><span>Suivre les transferts</span></label>
+          <label class="check"><input type="checkbox" name="refuseCodeOfConduct"><span>Refuser le code de conduite</span></label>
+        </div>
+        <div class="row">
+          <div class="field grow"><label for="c-authpw">Mot de passe AuthMe</label><input id="c-authpw" name="authmePassword" type="text"></div>
+          <div class="field grow"><label for="c-process">Processus</label>
+            <select id="c-process" name="process">
+              <option value="auto">Automatique (ouvriers au-delà du seuil)</option>
+              <option value="main">Processus principal</option>
+              <option value="worker">Processus ouvrier</option>
+            </select>
+          </div>
+        </div>
+      </details>
+      <details class="options" id="mix-details">
+        <summary>Population mixte</summary>
+        <p class="muted tiny">Répartit l'essaim entre plusieurs comportements selon leur poids (options par défaut de chaque mode). Laisser vide pour un seul mode.</p>
+        <div id="mix-rows"></div>
+        <button class="btn small" type="button" id="mix-add">+ Comportement</button>
+      </details>
+      <p class="muted tiny">« {i} » est remplacé par 1, 2, 3… En mode hors ligne, un pseudo fait au plus 16 caractères.</p>
+      <div class="screen-actions">
+        <span class="grow"></span>
+        <button class="btn" type="button" id="create-cancel">Annuler</button>
+        <button class="btn primary" type="submit">Créer et connecter</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tools-dialog" class="screen wide">
+    <h2 class="screen-title">Outils du serveur</h2>
+    <div class="seg tools-tabs"></div>
+    <div class="tools-body"></div>
+  </dialog>
+
+  <dialog id="camp-options-dialog" class="screen">
+    <h2 class="screen-title">Options du mode</h2>
+    <div class="camp-options-body"></div>
+    <div class="screen-actions"><span class="grow"></span><button class="btn primary" type="button" onclick="this.closest('dialog').close()">OK</button></div>
+  </dialog>
+
+  <div id="toasts"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/servertools.js"></script>
+  <script src="js/campaigns.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

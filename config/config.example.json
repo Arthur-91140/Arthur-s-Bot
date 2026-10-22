@@ -1,0 +1,24 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 25565,
+    "version": "auto"
+  },
+  "bot": {
+    "auth": "offline",
+    "autoReconnect": true,
+    "plugins": {
+      "authme": { "enabled": true, "password": "MotDePasseDeTest1!" }
+    }
+  },
+  "web": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "token": ""
+  },
+  "autostart": [
+    { "username": "Observateur", "mode": "observer", "modeOptions": { "interval": 30 } },
+    { "namePattern": "Bot_{i}", "count": 5, "joinDelay": 2000, "mode": "wander" },
+    { "username": "Accueil", "graph": "exemple-accueil-chat" }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "server": {
+    "host": "localhost",
+    "port": 25565,
+    "version": "auto"
+  },
+  "bot": {
+    "auth": "offline",
+    "autoReconnect": true,
+    "reconnectDelay": 5000,
+    "maxReconnectAttempts": 0,
+    "checkTimeoutInterval": 30000,
+    "viewDistance": "tiny",
+    "plugins": {
+      "autoRespawn": true,
+      "autoEat": true,
+      "autoArmor": false,
+      "acceptResourcePack": true,
+      "followTransfers": true,
+      "refuseCodeOfConduct": false,
+      "authme": {
+        "enabled": false,
+        "password": "ArthurBot123!"
+      }
+    }
+  },
+  "swarm": {
+    "namePattern": "Bot_{i}",
+    "joinDelay": 1500
+  },
+  "rcon": {
+    "enabled": false,
+    "port": 25575,
+    "password": ""
+  },
+  "management": {
+    "enabled": false,
+    "port": 0,
+    "secret": "",
+    "tls": true
+  },
+  "web": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3000,
+    "token": ""
+  },
+  "logs": {
+    "maxLines": 3000,
+    "console": "info",
+    "file": "logs/arthur-bot.log"
+  },
+  "trails": {
+    "keepMinutes": 60,
+    "persist": true
+  },
+  "paths": {
+    "graphs": "graphs",
+    "reports": "reports",
+    "profiles": ".auth",
+    "campaigns": "campaigns",
+    "data": "data"
+  },
+  "workers": {
+    "enabled": true,
+    "botsPerProcess": 100,
+    "maxProcesses": 0
+  },
+  "session": {
+    "restoreBots": true
+  },
+  "autostart": []
+}

@@ -1,0 +1,205 @@
+{
+  "id": "exemple-test-menu",
+  "name": "Exemple : test d'un menu (GUI)",
+  "description": "Ouvre un menu avec une commande, vérifie son contenu, clique sur un objet et vérifie la réponse.",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {},
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "misc.comment",
+      "x": 40,
+      "y": -120,
+      "params": {
+        "text": "Adaptez la commande d'ouverture (/menu), le motif de l'objet à cliquer et le message attendu."
+      }
+    },
+    {
+      "id": "start",
+      "type": "event.start",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "waitSpawn": true
+      }
+    },
+    {
+      "id": "open",
+      "type": "action.command",
+      "x": 280,
+      "y": 40,
+      "params": {
+        "command": "menu"
+      }
+    },
+    {
+      "id": "wait",
+      "type": "gui.waitWindow",
+      "x": 520,
+      "y": 40,
+      "params": {
+        "pattern": "",
+        "timeout": 5000,
+        "acceptOpen": true
+      }
+    },
+    {
+      "id": "check",
+      "type": "test.assert",
+      "x": 780,
+      "y": 40,
+      "params": {
+        "condition": "len(window.items) > 0",
+        "message": "Le menu « {{ window.title }} » contient {{ len(window.items) }} objet(s)"
+      }
+    },
+    {
+      "id": "click",
+      "type": "gui.clickItem",
+      "x": 1040,
+      "y": 40,
+      "params": {
+        "pattern": "diamond|emerald|.",
+        "button": "left",
+        "shift": false,
+        "delay": 500
+      }
+    },
+    {
+      "id": "clicked",
+      "type": "test.note",
+      "x": 1300,
+      "y": 40,
+      "params": {
+        "message": "Clic sur {{ clicked.displayName }} (case {{ clicked.slot }})"
+      }
+    },
+    {
+      "id": "close",
+      "type": "gui.close",
+      "x": 1540,
+      "y": 40,
+      "params": {}
+    },
+    {
+      "id": "nomenu",
+      "type": "test.assert",
+      "x": 780,
+      "y": 220,
+      "params": {
+        "condition": "false",
+        "message": "Le menu ne s'est pas ouvert"
+      }
+    },
+    {
+      "id": "noitem",
+      "type": "test.assert",
+      "x": 1300,
+      "y": 220,
+      "params": {
+        "condition": "false",
+        "message": "Aucun objet cliquable trouvé"
+      }
+    },
+    {
+      "id": "end",
+      "type": "test.finish",
+      "x": 1780,
+      "y": 120,
+      "params": {
+        "status": "auto",
+        "message": "",
+        "stopGraph": true
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "start",
+      "fromPort": "out",
+      "to": "open",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "open",
+      "fromPort": "out",
+      "to": "wait",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "wait",
+      "fromPort": "opened",
+      "to": "check",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "wait",
+      "fromPort": "timeout",
+      "to": "nomenu",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "nomenu",
+      "fromPort": "fail",
+      "to": "end",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "check",
+      "fromPort": "pass",
+      "to": "click",
+      "toPort": "in"
+    },
+    {
+      "id": "l7",
+      "from": "check",
+      "fromPort": "fail",
+      "to": "end",
+      "toPort": "in"
+    },
+    {
+      "id": "l8",
+      "from": "click",
+      "fromPort": "done",
+      "to": "clicked",
+      "toPort": "in"
+    },
+    {
+      "id": "l9",
+      "from": "click",
+      "fromPort": "notFound",
+      "to": "noitem",
+      "toPort": "in"
+    },
+    {
+      "id": "l10",
+      "from": "noitem",
+      "fromPort": "fail",
+      "to": "end",
+      "toPort": "in"
+    },
+    {
+      "id": "l11",
+      "from": "clicked",
+      "fromPort": "out",
+      "to": "close",
+      "toPort": "in"
+    },
+    {
+      "id": "l12",
+      "from": "close",
+      "fromPort": "out",
+      "to": "end",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}

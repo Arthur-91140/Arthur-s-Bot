@@ -1,0 +1,58 @@
+{
+  "id": "exemple-charge-mixte",
+  "name": "Exemple : charge mixte (20 bots, 2 min)",
+  "description": "20 bots aux comportements mélangés (promeneurs, anti-AFK, explorateurs) pendant 2 minutes. Réussie si le TPS moyen reste au-dessus de 18 sans expulsion.",
+  "server": {
+    "host": "",
+    "port": 0,
+    "version": ""
+  },
+  "groups": [
+    {
+      "count": 12,
+      "namePattern": "Charge_{i}",
+      "mode": "wander",
+      "modeOptions": {
+        "radius": 24,
+        "sprint": true
+      },
+      "graph": ""
+    },
+    {
+      "count": 5,
+      "namePattern": "Charge_{i}",
+      "mode": "antiafk",
+      "modeOptions": {},
+      "graph": ""
+    },
+    {
+      "count": 3,
+      "namePattern": "Charge_{i}",
+      "mode": "explorer",
+      "modeOptions": {
+        "direction": "random"
+      },
+      "graph": ""
+    }
+  ],
+  "joinDelay": 1000,
+  "warmup": 15,
+  "duration": 120,
+  "autoReconnect": false,
+  "keepBots": false,
+  "setup": [
+    "time set day",
+    "weather clear"
+  ],
+  "teardown": [],
+  "settings": {},
+  "criteria": {
+    "minAvgTps": 18,
+    "minOnlineRatio": 0.95,
+    "maxKicks": 0,
+    "maxLoopLag": 250,
+    "graphsPassed": true,
+    "serverSeesAll": false
+  },
+  "interleave": true
+}

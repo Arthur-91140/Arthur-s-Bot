@@ -1,0 +1,198 @@
+{
+  "id": "exemple-patrouille",
+  "name": "Exemple : patrouille et défense",
+  "description": "Parcourt une liste de points en boucle et combat les monstres qui s'approchent.",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {
+    "points": [
+      [
+        0,
+        0
+      ],
+      [
+        12,
+        0
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        0,
+        12
+      ]
+    ],
+    "i": 0
+  },
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "misc.comment",
+      "x": 40,
+      "y": -120,
+      "params": {
+        "text": "Modifiez la variable \"points\" (propriétés du graphe) : liste de [x, z]."
+      }
+    },
+    {
+      "id": "start",
+      "type": "event.start",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "waitSpawn": true
+      }
+    },
+    {
+      "id": "loop",
+      "type": "flow.while",
+      "x": 280,
+      "y": 40,
+      "params": {
+        "condition": "true",
+        "max": 1000000,
+        "variable": "tour"
+      }
+    },
+    {
+      "id": "go",
+      "type": "move.goto",
+      "x": 540,
+      "y": 40,
+      "params": {
+        "x": "points[i % len(points)][0]",
+        "y": "",
+        "z": "points[i % len(points)][1]",
+        "range": 1,
+        "timeout": 30000,
+        "canDig": false
+      }
+    },
+    {
+      "id": "inc",
+      "type": "var.increment",
+      "x": 800,
+      "y": 40,
+      "params": {
+        "name": "i",
+        "amount": 1,
+        "scope": "graph"
+      }
+    },
+    {
+      "id": "pause",
+      "type": "flow.waitRandom",
+      "x": 1040,
+      "y": 40,
+      "params": {
+        "min": 500,
+        "max": 2000
+      }
+    },
+    {
+      "id": "log",
+      "type": "flow.log",
+      "x": 800,
+      "y": 200,
+      "params": {
+        "message": "Point {{ i % len(points) }} inaccessible",
+        "level": "warn"
+      }
+    },
+    {
+      "id": "mob",
+      "type": "event.proximity",
+      "x": 40,
+      "y": 380,
+      "params": {
+        "filter": "hostile",
+        "name": "",
+        "distance": 8
+      }
+    },
+    {
+      "id": "fight",
+      "type": "action.attack",
+      "x": 300,
+      "y": 380,
+      "params": {
+        "filter": "hostile",
+        "name": "",
+        "range": 10,
+        "mode": "fight",
+        "timeout": 15000
+      }
+    },
+    {
+      "id": "note",
+      "type": "flow.log",
+      "x": 560,
+      "y": 380,
+      "params": {
+        "message": "Combat terminé contre {{ target }}",
+        "level": "info"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "start",
+      "fromPort": "out",
+      "to": "loop",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "loop",
+      "fromPort": "body",
+      "to": "go",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "go",
+      "fromPort": "arrived",
+      "to": "inc",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "go",
+      "fromPort": "failed",
+      "to": "log",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "log",
+      "fromPort": "out",
+      "to": "inc",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "inc",
+      "fromPort": "out",
+      "to": "pause",
+      "toPort": "in"
+    },
+    {
+      "id": "l7",
+      "from": "mob",
+      "fromPort": "out",
+      "to": "fight",
+      "toPort": "in"
+    },
+    {
+      "id": "l8",
+      "from": "fight",
+      "fromPort": "done",
+      "to": "note",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}

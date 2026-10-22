@@ -1,0 +1,199 @@
+{
+  "id": "exemple-accueil-chat",
+  "name": "Exemple : accueil et commandes de chat",
+  "description": "Dit bonjour à l'apparition et réagit aux messages !pos, !suis-moi, !stop et aux messages privés.",
+  "tags": [
+    "exemple"
+  ],
+  "variables": {},
+  "nodes": [
+    {
+      "id": "c1",
+      "type": "misc.comment",
+      "x": 40,
+      "y": -110,
+      "params": {
+        "text": "Tapez dans le chat du serveur : !pos, !suis-moi, !stop\nou envoyez un /msg au bot."
+      }
+    },
+    {
+      "id": "s",
+      "type": "event.spawn",
+      "x": 40,
+      "y": 40,
+      "params": {
+        "onlyFirst": true
+      }
+    },
+    {
+      "id": "w",
+      "type": "flow.wait",
+      "x": 300,
+      "y": 40,
+      "params": {
+        "ms": 2000
+      }
+    },
+    {
+      "id": "hi",
+      "type": "action.chat",
+      "x": 560,
+      "y": 40,
+      "params": {
+        "message": "Bonjour ! Je suis {{ bot.username }}, bot de test."
+      }
+    },
+    {
+      "id": "pos",
+      "type": "event.chat",
+      "x": 40,
+      "y": 200,
+      "params": {
+        "pattern": "!pos",
+        "source": "all"
+      }
+    },
+    {
+      "id": "say",
+      "type": "action.chat",
+      "x": 300,
+      "y": 200,
+      "params": {
+        "message": "Je suis en {{ bot.blockX }} {{ bot.blockY }} {{ bot.blockZ }} ({{ bot.dimension }}), vie {{ bot.health }}/20"
+      }
+    },
+    {
+      "id": "fol",
+      "type": "event.chat",
+      "x": 40,
+      "y": 350,
+      "params": {
+        "pattern": "!suis-moi",
+        "source": "player"
+      }
+    },
+    {
+      "id": "follow",
+      "type": "move.follow",
+      "x": 300,
+      "y": 350,
+      "params": {
+        "player": "{{ event.username }}",
+        "distance": 2
+      }
+    },
+    {
+      "id": "ok",
+      "type": "action.chat",
+      "x": 560,
+      "y": 330,
+      "params": {
+        "message": "Je te suis, {{ event.username }} !"
+      }
+    },
+    {
+      "id": "ko",
+      "type": "action.chat",
+      "x": 560,
+      "y": 420,
+      "params": {
+        "message": "Je ne te vois pas, {{ event.username }}."
+      }
+    },
+    {
+      "id": "st",
+      "type": "event.chat",
+      "x": 40,
+      "y": 520,
+      "params": {
+        "pattern": "!stop",
+        "source": "all"
+      }
+    },
+    {
+      "id": "stop",
+      "type": "move.stop",
+      "x": 300,
+      "y": 520,
+      "params": {}
+    },
+    {
+      "id": "wh",
+      "type": "event.whisper",
+      "x": 40,
+      "y": 650,
+      "params": {
+        "pattern": ""
+      }
+    },
+    {
+      "id": "rep",
+      "type": "action.whisper",
+      "x": 300,
+      "y": 650,
+      "params": {
+        "player": "{{ event.username }}",
+        "message": "Message reçu : {{ event.message }}"
+      }
+    }
+  ],
+  "links": [
+    {
+      "id": "l1",
+      "from": "s",
+      "fromPort": "out",
+      "to": "w",
+      "toPort": "in"
+    },
+    {
+      "id": "l2",
+      "from": "w",
+      "fromPort": "out",
+      "to": "hi",
+      "toPort": "in"
+    },
+    {
+      "id": "l3",
+      "from": "pos",
+      "fromPort": "out",
+      "to": "say",
+      "toPort": "in"
+    },
+    {
+      "id": "l4",
+      "from": "fol",
+      "fromPort": "out",
+      "to": "follow",
+      "toPort": "in"
+    },
+    {
+      "id": "l5",
+      "from": "follow",
+      "fromPort": "out",
+      "to": "ok",
+      "toPort": "in"
+    },
+    {
+      "id": "l6",
+      "from": "follow",
+      "fromPort": "notFound",
+      "to": "ko",
+      "toPort": "in"
+    },
+    {
+      "id": "l7",
+      "from": "st",
+      "fromPort": "out",
+      "to": "stop",
+      "toPort": "in"
+    },
+    {
+      "id": "l8",
+      "from": "wh",
+      "fromPort": "out",
+      "to": "rep",
+      "toPort": "in"
+    }
+  ],
+  "version": 1
+}
